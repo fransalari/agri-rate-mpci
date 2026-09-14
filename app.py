@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src.analytics import detrending, statistics as ystats
+from src.normalization import YieldNormalizationConfig, YieldNormalizationEngine
 from src.data import database
 from src.pricing import burning_cost as bc
 from src.pricing.yield_insurance import Coverage
@@ -32,13 +33,19 @@ st.sidebar.caption("Agricultural Risk & Insurance Analytics")
 page = st.sidebar.radio(
     "Módulo",
     ["🏠 Dashboard", "🌱 Análisis de rindes", "📈 Detrending",
-     "💰 Pricing", "🎲 Monte Carlo", "📦 Datos"],
+     "🧠 Normalización", "💰 Pricing", "🎲 Monte Carlo", "📦 Datos"],
 )
 
 cultivos = sorted(df["cultivo"].unique())
-cultivo = st.sidebar.selectbox("Cultivo", cultivos)
-deptos = sorted(df.loc[df["cultivo"] == cultivo, "departamento"].unique())
-depto = st.sidebar.selectbox("Departamento", deptos)
+_pref = next((i for i, c in enumerate(cultivos)
+              if c.casefold() in ("soja total", "girasol", "maíz")), 0)
+cultivo = st.sidebar.selectbox("Cultivo", cultivos, index=_pref)
+_sub = df.loc[df["cultivo"] == cultivo]
+deptos = sorted(_sub["departamento"].unique())
+_counts = _sub.groupby("departamento")["anio"].nunique()
+_best = _counts.idxmax() if len(_counts) else deptos[0]
+depto = st.sidebar.selectbox("Departamento", deptos,
+                             index=deptos.index(_best))
 
 anios = df.loc[(df["cultivo"] == cultivo) & (df["departamento"] == depto), "anio"]
 a_min, a_max = int(anios.min()), int(anios.max())
@@ -47,9 +54,50 @@ desde, hasta = st.sidebar.slider("Período", a_min, a_max, (a_min, a_max))
 serie = database.series(df, cultivo, depto, desde, hasta)
 
 method = st.sidebar.selectbox(
-    "Detrending", ["linear", "quadratic", "loess", "moving_average", "none"])
-det = detrending.detrend(serie, method=method) if len(serie) >= 3 else serie.assign(
-    trend=np.nan, detrended=serie.get("rendimiento_kgxha"), yield_index=np.nan)
+    "Detrending",
+    ["auto (motor)", "linear", "quadratic", "loess", "moving_average", "none"],
+    help="'auto' selecciona modelo, modo, start year y half-life con "
+         "validación out-of-sample (Yield Risk Normalization Engine)")
+
+TARGET_YEAR = int(a_max) + 1
+
+
+@st.cache_resource(show_spinner="Ejecutando motor de normalización...")
+def run_engine(cultivo: str, depto: str, desde: int, hasta: int,
+               mode: str, n_rows: int):
+    data = database.series(get_data(), cultivo, depto, desde, hasta)
+    cfg = YieldNormalizationConfig(execution_mode=mode)
+    return YieldNormalizationEngine(cfg).run(
+        data, crop=cultivo, location=depto, target_year=hasta + 1)
+
+
+def engine_to_det(res, serie_df):
+    nh = res.normalized_history.rename(columns={
+        "year": "anio", "observed_yield": "rendimiento_kgxha",
+        "historical_trend": "trend", "normalized_yield": "detrended",
+        "relative_shock": "yield_index"})
+    out = nh.merge(serie_df[["anio", "campania"]], on="anio", how="left")
+    out.attrs["reference_year"] = res.target_year
+    out.attrs["reference_trend"] = res.expected_yield
+    out.attrs["method"] = f"auto: {res.recommended.label()}"
+    return out
+
+
+auto_result = None
+if method == "auto (motor)" and len(serie) >= 8:
+    auto_result = run_engine(cultivo, depto, desde, hasta, "FAST", len(serie))
+    if auto_result.status == "OK":
+        det = engine_to_det(auto_result, serie)
+        st.sidebar.success(f"AUTO · {auto_result.recommended.trend_model} · "
+                           f"conf. {auto_result.selection_confidence}")
+    else:
+        st.sidebar.warning("Serie insuficiente para el motor; fallback linear")
+        det = detrending.detrend(serie, method="linear")
+elif len(serie) >= 3 and method != "auto (motor)":
+    det = detrending.detrend(serie, method=method)
+else:
+    det = detrending.detrend(serie, method="linear") if len(serie) >= 3 else serie.assign(
+        trend=np.nan, detrended=serie.get("rendimiento_kgxha"), yield_index=np.nan)
 
 st.sidebar.caption(f"Fuente: {df.attrs.get('source', '—')}")
 
@@ -124,12 +172,147 @@ elif page == "📈 Detrending":
     c1.metric("CV original", f"{serie['rendimiento_kgxha'].std(ddof=1) / serie['rendimiento_kgxha'].mean():.0%}")
     c2.metric("CV detrendeado", f"{det['detrended'].std(ddof=1) / det['detrended'].mean():.0%}")
 
+
+elif page == "🧠 Normalización":
+    st.title("Yield Risk Normalization Engine")
+    st.caption("Selección automática de detrending con validación "
+               "out-of-sample · regla one-standard-error")
+
+    mode = st.radio("Modo de ejecución", ["FAST", "FULL"], horizontal=True,
+                    help="FAST: interactivo. FULL: grid completo + "
+                         "Historical Information Value (governance/pricing).")
+    res = run_engine(cultivo, depto, desde, hasta, mode, len(serie))
+
+    if res.status != "OK":
+        st.warning("INSUFFICIENT_DATA: la serie no alcanza para modelar "
+                   "sin inventar precisión.")
+        st.stop()
+
+    rec, hl = res.recommended, res.recommended.half_life_years
+    hl_txt = "∞ (pesos iguales)" if hl == float("inf") else f"{hl:g} años"
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Modelo recomendado", rec.trend_model)
+    c2.metric("Detrending", rec.detrending_mode)
+    c3.metric("Historia", f"{rec.start_year}–{int(det['anio'].max())}")
+    c4.metric("Half-life", hl_txt)
+    c1, c2, c3, c4 = st.columns(4)
+    ci = res.expected_yield_ci
+    c1.metric(f"Rinde esperado {res.target_year}",
+              f"{res.expected_yield:,.0f} kg/ha",
+              help=f"CI 90%: {ci[0]:,.0f} – {ci[1]:,.0f}")
+    c2.metric("N efectivo", f"{res.effective_sample_size:.1f}",
+              help=f"status: {res.sample_status}")
+    c3.metric("Confianza", res.selection_confidence,
+              help=f"estabilidad de selección: {res.selection_stability_pct:.0f}%")
+    c4.metric("Score actuarial", f"{res.validation_score:.4f}",
+              help=f"± {res.score_se:.4f} (SE) · tail {res.tail_score:.4f}")
+
+    with st.expander("¿Por qué este modelo?", expanded=True):
+        for r in res.selection_reason:
+            st.write("–", r)
+        if res.numerical_champion != res.recommended:
+            st.caption(f"Campeón numérico: {res.numerical_champion.label()} "
+                       f"(score {res.numerical_champion_score:.4f})")
+
+    nh = res.normalized_history
+
+    # Chart 1 — observado vs trend + target
+    fig = go.Figure()
+    fig.add_scatter(x=nh["year"], y=nh["observed_yield"],
+                    mode="lines+markers", name="Observado")
+    fig.add_scatter(x=nh["year"], y=nh["historical_trend"],
+                    mode="lines", name="Trend seleccionado",
+                    line=dict(dash="dash"))
+    fig.add_scatter(x=[res.target_year], y=[res.expected_yield],
+                    mode="markers", name=f"E[{res.target_year}]",
+                    marker=dict(size=13, symbol="star"))
+    fig.update_layout(title="Rinde observado y tendencia tecnológica",
+                      height=400, xaxis_title="Campaña", yaxis_title="kg/ha")
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Chart 2 — historia normalizada
+    fig = px.bar(nh, x="year", y="normalized_yield",
+                 title=f"Historia normalizada a tecnología {res.target_year}",
+                 labels={"year": "Campaña", "normalized_yield": "kg/ha equivalentes"})
+    fig.add_hline(y=res.expected_yield, line_dash="dot",
+                  annotation_text="rinde esperado")
+    fig.update_layout(height=380)
+    st.plotly_chart(fig, use_container_width=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        # Chart 3 — comparación de modelos (mejor score por modelo)
+        r = res.model_ranking
+        bpm = (r.loc[r.groupby("model")["cv_score"].idxmin()]
+               .sort_values("cv_score"))
+        colors = ["SELECTED" in s or "champion" in s for s in bpm["status"]]
+        fig = px.bar(bpm, x="cv_score", y="model", orientation="h",
+                     title="Actuarial Validation Score (mejor por modelo)",
+                     labels={"cv_score": "score (menor = mejor)", "model": ""},
+                     color=colors, color_discrete_map={True: "#2e7d32",
+                                                       False: "#9e9e9e"})
+        fig.update_layout(height=340, showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+    with c2:
+        # Chart 5 — peso histórico por año
+        fig = px.bar(nh, x="year", y="historical_weight",
+                     title="Peso histórico por campaña (half-life)",
+                     labels={"year": "Campaña", "historical_weight": "peso relativo"})
+        fig.update_layout(height=340)
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Chart 4 — HIV (solo FULL)
+    if res.historical_information_value is not None and len(res.historical_information_value):
+        hiv = res.historical_information_value
+        fig = px.bar(hiv, x="period", y="information_value",
+                     title="Historical Information Value por bloque "
+                           "(positivo = el bloque ayuda)",
+                     labels={"period": "", "information_value": "ΔScore sin el bloque"},
+                     hover_data=["recommendation"])
+        fig.update_layout(height=340)
+        st.plotly_chart(fig, use_container_width=True)
+    elif mode == "FAST":
+        st.caption("Historical Information Value disponible en modo FULL.")
+
+    with st.expander("Diagnósticos actuariales (advanced)"):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write("**Diagnósticos**")
+            st.json(res.diagnostics)
+            sb = res.structural_break
+            st.write("**Structural break**")
+            st.write(f"{sb.confidence}"
+                     + (f" · año {sb.year} · p={sb.p_value:.3f} · "
+                        f"acción sugerida: {sb.suggested_action}"
+                        if sb.detected else " (no detectado)"))
+            if sb.note:
+                st.caption(sb.note)
+        with c2:
+            st.write("**Calidad de datos**")
+            if res.data_quality:
+                st.dataframe(pd.DataFrame(res.data_quality), height=200)
+            else:
+                st.write("Sin observaciones.")
+            if res.warnings:
+                st.write("**Warnings**")
+                for w in res.warnings:
+                    st.warning(w)
+        st.write("**Ranking completo**")
+        st.dataframe(res.model_ranking, height=300, use_container_width=True)
+        st.caption(f"Ejecución: {res.timings.get('total_s','—')} s · "
+                   f"{res.timings.get('n_candidates','—')} configuraciones · "
+                   f"dataset hash {res.governance.get('dataset_hash','—')} · "
+                   f"engine v{res.governance.get('engine_version','—')}")
+
 elif page == "💰 Pricing":
     st.title("Pricing — Yield Shortfall")
 
     c1, c2, c3 = st.columns(3)
+    _default_expected = (auto_result.expected_yield
+                         if auto_result is not None and auto_result.status == "OK"
+                         else det["trend"].iloc[-1])
     expected = c1.number_input("Rinde esperado (kg/ha)",
-                               value=float(round(det["trend"].iloc[-1], -1)),
+                               value=float(round(_default_expected, -1)),
                                step=50.0)
     guarantee = c2.slider("Garantía", 0.50, 0.90, 0.70, 0.05)
     price = c3.number_input("Precio (USD/kg)", value=0.40, step=0.05)
@@ -165,8 +348,11 @@ elif page == "🎲 Monte Carlo":
     st.title("Simulación Monte Carlo")
 
     c1, c2, c3 = st.columns(3)
+    _default_expected = (auto_result.expected_yield
+                         if auto_result is not None and auto_result.status == "OK"
+                         else det["trend"].iloc[-1])
     expected = c1.number_input("Rinde esperado (kg/ha)",
-                               value=float(round(det["trend"].iloc[-1], -1)),
+                               value=float(round(_default_expected, -1)),
                                step=50.0)
     guarantee = c2.slider("Garantía", 0.50, 0.90, 0.70, 0.05)
     price = c3.number_input("Precio (USD/kg)", value=0.40, step=0.05)

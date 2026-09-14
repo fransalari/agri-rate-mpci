@@ -26,6 +26,7 @@ departamentos, fuente MAGyP).
 | 🏠 Dashboard | KPIs de la serie: rinde promedio, tendencia, CV, peor campaña |
 | 🌱 Análisis de rindes | Serie histórica, estadística descriptiva, percentiles, histograma |
 | 📈 Detrending | Linear / quadratic / LOESS / moving average — serie en "tecnología actual" |
+| 🧠 Normalización | **Yield Risk Normalization Engine**: selección automática de modelo, modo (mult/add), start year y half-life con validación rolling-origin OOS, regla one-SE, structural breaks, bootstrap y explicación auditable (`REPORT_NORMALIZATION.md`) |
 | 💰 Pricing | Burning cost, frecuencia, severidad, curva de garantías 50–90%, loss cost anual |
 | 🎲 Monte Carlo | Bootstrap/KDE/paramétricas (AIC), VaR/TVaR 95-99, prima bruta con gastos y margen |
 | 📦 Datos | Fuente activa, descarga de la serie filtrada, actualización desde MAGyP |
