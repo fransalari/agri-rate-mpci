@@ -32,11 +32,52 @@ def load(parquet: Path | str | None = None) -> pd.DataFrame:
 
 
 def _normalize(df: pd.DataFrame) -> pd.DataFrame:
+    """Normaliza cualquiera de los dos esquemas de MAGyP al esquema interno."""
     df = df.copy()
-    df.columns = (
-        df.columns.str.strip().str.lower()
-        .str.replace(" ", "_").str.replace(".", "", regex=False)
-    )
+
+    def clean(name: str) -> str:
+        s = unicodedata.normalize("NFKD", str(name))
+        s = "".join(c for c in s if not unicodedata.combining(c))  # sin tildes
+        s = s.lower().strip()
+        for junk in ("(ha)", "(tn)", "(tm)", "(kg/ha)", "(kgxha)", "."):
+            s = s.replace(junk, "")
+        return s.strip().replace(" ", "_")
+
+    df.columns = [clean(c) for c in df.columns]
+
+    # mapeo por contenido: cubre "sup_sembrada", "superficie_sembrada_ha", etc.
+    def find(*tokens, exclude=("id",)):
+        for col in df.columns:
+            if all(t in col for t in tokens) and not any(col.startswith(e) for e in exclude):
+                return col
+        return None
+
+    rename = {}
+    for target, tokens in {
+        "cultivo": ("cultivo",),
+        "campania": ("campa",),
+        "provincia": ("provincia",),
+        "departamento": ("departamento",),
+        "rendimiento_kgxha": ("rendimiento",),
+        "superficie_sembrada_ha": ("sembrada",),
+        "superficie_cosechada_ha": ("cosechada",),
+        "produccion_tm": ("produccion",),
+    }.items():
+        col = find(*tokens)
+        if col and col != target:
+            rename[col] = target
+    df = df.rename(columns=rename)
+
+    missing = [c for c in ("cultivo", "campania", "provincia", "departamento",
+                           "rendimiento_kgxha") if c not in df.columns]
+    if missing:
+        raise ValueError(f"Columnas no encontradas: {missing}. "
+                         f"Columnas del CSV: {list(df.columns)}")
+
+    # anio: si no viene, se deriva de la campaña ("2024/25" → 2024)
+    if "anio" not in df.columns:
+        df["anio"] = df["campania"].astype(str).str.extract(r"(\d{4})")[0]
+
     keep = [c for c in SCHEMA if c in df.columns]
     df = df[keep]
     df["anio"] = pd.to_numeric(df["anio"], errors="coerce").astype("Int64")
