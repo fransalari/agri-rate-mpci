@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import duckdb
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -52,6 +51,8 @@ def _normalize(df: pd.DataFrame) -> pd.DataFrame:
 
 def query(sql: str, df: pd.DataFrame | None = None) -> pd.DataFrame:
     """SQL sobre el dataset con DuckDB (tabla: estimaciones)."""
+    import duckdb  # import perezoso: solo lo usa la app, no el pipeline de datos
+
     con = duckdb.connect()
     con.register("estimaciones", df if df is not None else load())
     try:
