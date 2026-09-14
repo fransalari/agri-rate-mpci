@@ -1,0 +1,11 @@
+streamlit>=1.36
+pandas>=2.0
+numpy>=1.26
+scipy>=1.11
+statsmodels>=0.14
+plotly>=5.20
+duckdb>=0.10
+pyarrow>=14
+requests>=2.31
+# opcional: leer el extract .hyper de CEDEI (Tableau)
+# pantab>=3.0

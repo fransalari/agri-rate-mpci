@@ -1,0 +1,47 @@
+name: Actualizar datos MAGyP
+
+on:
+  schedule:
+    - cron: "0 6 3 * *"   # día 3 de cada mes, 06:00 UTC
+  workflow_dispatch: {}    # permite correrlo a mano
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install requests pandas pyarrow
+
+      - name: Descargar y regenerar Parquet
+        run: |
+          python - << 'EOF'
+          from src.data import magyp
+          from src.data import database
+
+          csv_path = magyp.download_full_dataset("data/raw/estimaciones_magyp.csv")
+          df = magyp.load_dataset(csv_path)
+          df = database._normalize(df)
+          magyp.to_parquet(df, "data/estimaciones.parquet")
+          print(f"{len(df):,} filas")
+          EOF
+
+      - name: Commit si hay cambios
+        run: |
+          git config user.name "agro-rate-bot"
+          git config user.email "actions@github.com"
+          git add data/estimaciones.parquet
+          if git diff --cached --quiet; then
+            echo "Sin cambios en los datos"
+          else
+            git commit -m "data: actualización mensual MAGyP ($(date -u +%Y-%m))"
+            git push
+          fi
