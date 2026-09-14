@@ -1,7 +1,7 @@
 """Capa de acceso a datos: Parquet + DuckDB, con fallback al sample."""
 
 from __future__ import annotations
-
+import unicodedata
 from pathlib import Path
 
 import pandas as pd
