@@ -1,0 +1,157 @@
+"""i18n mínimo: español canónico → inglés, con tr() leyendo el idioma
+de st.session_state. Las claves internas (values de widgets comparados
+en código) nunca se traducen; solo la presentación (format_func/labels).
+"""
+
+from __future__ import annotations
+
+import streamlit as st
+
+EN = {
+    # --- sidebar / navegación ---
+    "Módulo": "Module", "Cultivo": "Crop", "Departamento": "Department",
+    "Período": "Period", "Fuente": "Source", "Idioma": "Language",
+    "Agricultural Risk & Insurance Analytics": "Agricultural Risk & Insurance Analytics",
+    "📊 Resultados": "📊 Results", "🏠 Dashboard": "🏠 Dashboard",
+    "🌱 Análisis de rindes": "🌱 Yield analysis", "📈 Detrending": "📈 Detrending",
+    "🧠 Normalización": "🧠 Normalization", "📉 Riesgo": "📉 Risk distribution",
+    "💰 Pricing": "💰 Pricing", "🎲 Monte Carlo": "🎲 Monte Carlo",
+    "📦 Datos": "📦 Data",
+    "'auto' selecciona modelo, modo, start year y half-life con validación out-of-sample (Yield Risk Normalization Engine)":
+        "'auto' selects model, mode, start year and half-life via out-of-sample validation (Yield Risk Normalization Engine)",
+    "Serie insuficiente para el motor; fallback linear":
+        "Series too short for the engine; linear fallback",
+
+    # --- Resultados ---
+    "Resultados — consolidado de cartera": "Results — portfolio consolidation",
+    "Tarifación técnica propia (modelo area-yield sobre serie normalizada) · escenario CAT · peor año histórico · loss cap":
+        "In-house technical rating (area-yield on normalized series) · CAT scenario · worst historical year · loss cap",
+    "**Del panel lateral aplican:** cultivo (**{c}**) y período (**{d}–{h}**). El departamento del panel no aplica acá: se consolidan todos los elegibles de la provincia seleccionada.":
+        "**From the sidebar apply:** crop (**{c}**) and period (**{d}–{h}**). The sidebar department does not apply here: all eligible departments of the selected province are consolidated.",
+    "Provincia": "Province", "Mín. campañas por depto": "Min. seasons per dept",
+    "Modo de garantía": "Guarantee mode",
+    "% del rinde esperado": "% of expected yield",
+    "rinde fijo (kg/ha)": "fixed yield (kg/ha)",
+    "Valor de garantía": "Guarantee value",
+    "65 ⇒ trigger = 65% del E[rinde] del motor · o kg/ha fijos":
+        "65 ⇒ trigger = 65% of the engine's expected yield · or fixed kg/ha",
+    "Suma asegurada (USD/ha)": "Sum insured (USD/ha)",
+    "Deductions": "Deductions", "MR Margin": "MR Margin",
+    "Período de retorno CAT": "CAT return period",
+    "Aplicar LOSS CAP": "Apply LOSS CAP",
+    "Loss cap (% de la suma asegurada)": "Loss cap (% of sum insured)",
+    "Calcular consolidado": "Compute portfolio",
+    "Configurá los parámetros y presioná **Calcular consolidado**. El motor de normalización corre por cada departamento elegible (~2 s c/u la primera vez; después queda cacheado).":
+        "Set the parameters and press **Compute portfolio**. The normalization engine runs per eligible department (~2 s each on first run; cached afterwards).",
+    "Ningún departamento elegible con esos filtros.":
+        "No eligible department with those filters.",
+    "Totales de cartera": "Portfolio totals",
+    "Serie utilizada: campañas {d}–{h} · triggers sobre E[rinde] estimado con esa ventana.":
+        "Series used: seasons {d}–{h} · triggers on the expected yield estimated with that window.",
+    "Prima técnica total": "Total technical premium",
+    "Suma asegurada total": "Total sum insured",
+    "Tasa técnica media": "Average technical rate",
+    "Departamentos": "Departments",
+    "Pérdida CAT (RP {rp} años)": "CAT loss (RP {rp} years)",
+    "Siniestralidad CAT (siniestros/prima)": "CAT loss ratio (losses/premium)",
+    "equivale a PML {x:.1f}× la prima técnica": "equals a PML of {x:.1f}× technical premium",
+    "Peor año histórico ({y})": "Worst historical year ({y})",
+    "Siniestralidad {y}": "Loss ratio {y}",
+    "equivale a {x:.1f}× la prima técnica": "equals {x:.1f}× technical premium",
+    "Detalle por departamento": "Department detail",
+    "⬇ Descargar CSV": "⬇ Download CSV",
+    "Prima técnica por departamento (USD)": "Technical premium by department (USD)",
+    "Unidad del gráfico histórico": "Historical chart unit",
+    "% Loss Ratio (siniestros/prima)": "% Loss Ratio (losses/premium)",
+    "Siniestralidad histórica por campaña (a valores actuales)":
+        "Historical loss ratio by season (at current values)",
+    "Pérdida histórica agregada por campaña (USD, a valores actuales)":
+        "Aggregate historical loss by season (USD, current values)",
+    "% de la prima técnica": "% of technical premium",
+    "LR 100% (siniestros = prima)": "LR 100% (losses = premium)",
+    "sin cap": "no cap", "con cap {c:.0%}": "cap {c:.0%}",
+    "peor año: {y}": "worst year: {y}", "Campaña": "Season",
+    "Detalle del peor año ({y})": "Worst-year detail ({y})",
+    "Departamentos excluidos ({n})": "Excluded departments ({n})",
+
+    # --- Normalización ---
+    "Yield Risk Normalization Engine": "Yield Risk Normalization Engine",
+    "Selección automática de detrending con validación out-of-sample · regla one-standard-error":
+        "Automatic detrending selection with out-of-sample validation · one-standard-error rule",
+    "Modo de ejecución": "Execution mode",
+    "FAST: interactivo. FULL: grid completo + Historical Information Value (governance/pricing).":
+        "FAST: interactive. FULL: complete grid + Historical Information Value (governance/pricing).",
+    "INSUFFICIENT_DATA: la serie no alcanza para modelar sin inventar precisión.":
+        "INSUFFICIENT_DATA: the series is too short to model without inventing precision.",
+    "Modelo recomendado": "Recommended model", "Historia": "History",
+    "Half-life": "Half-life", "∞ (pesos iguales)": "∞ (equal weights)",
+    "Rinde esperado {y}": "Expected yield {y}",
+    "N efectivo": "Effective N", "Confianza": "Confidence",
+    "Score actuarial": "Actuarial score",
+    "¿Por qué este modelo?": "Why this model?",
+    "Campeón numérico: {x}": "Numerical champion: {x}",
+    "Rinde observado y tendencia tecnológica": "Observed yield and technological trend",
+    "Historia normalizada a tecnología {y}": "History normalized to {y} technology",
+    "Actuarial Validation Score (mejor por modelo)": "Actuarial Validation Score (best per model)",
+    "Peso histórico por campaña (half-life)": "Historical weight by season (half-life)",
+    "Historical Information Value disponible en modo FULL.":
+        "Historical Information Value available in FULL mode.",
+    "Diagnósticos actuariales (advanced)": "Actuarial diagnostics (advanced)",
+    "Observado": "Observed", "Trend seleccionado": "Selected trend",
+
+    # --- Riesgo (nueva) ---
+    "Yield Risk Distribution Engine": "Yield Risk Distribution Engine",
+    "Distribución de riesgo tail-first: volatilidad · KDE benchmark · masa en cero · backtest asegurador":
+        "Tail-first risk distribution: volatility · KDE benchmark · zero mass · insurance backtest",
+    "Nivel de agregación": "Aggregation level",
+    "Los datos fuente son departamentales; niveles más finos aplican priors de volatilidad y P(Y=0) configurables.":
+        "Source data is department-level; finer levels apply configurable volatility and P(Y=0) priors.",
+    "Distribución": "Distribution", "Volatilidad": "Volatility",
+    "P(Y=0)": "P(Y=0)", "a nivel {x}": "at {x} level",
+    "Prob. falla catastrófica": "Catastrophic failure prob.",
+    "P(Y < 25% del esperado)": "P(Y < 25% of expected)",
+    "Campeón AIC": "AIC champion",
+    "¿Por qué este modelo de riesgo?": "Why this risk model?",
+    "Distribución de rindes simulada — zoom cola inferior":
+        "Simulated yield distribution — lower-tail zoom",
+    "Densidad completa": "Full density", "Zoom cola (≤ P30)": "Tail zoom (≤ P30)",
+    "Curva de siniestros: prima pura vs nivel de cobertura":
+        "Claim curve: pure premium vs coverage level",
+    "modelo": "model", "histórico": "historical",
+    "Nivel de cobertura (% del rinde esperado)": "Coverage level (% of expected yield)",
+    "Prima pura (% de la garantía)": "Pure premium (% of guarantee)",
+    "Volatilidad downside vs upside": "Downside vs upside volatility",
+    "Ranking de distribuciones (score asegurador)": "Distribution ranking (insurance score)",
+    "Backtest por nivel de cobertura": "Backtest by coverage level",
+    "Frecuencia de siniestro: predicha vs observada": "Claim frequency: predicted vs observed",
+    "rinde simulado (kg/ha)": "simulated yield (kg/ha)",
+    "Masa en cero (P(Y=0) = {p:.2%}) mostrada como barra discreta — no se esconde en la densidad.":
+        "Zero mass (P(Y=0) = {p:.2%}) shown as a discrete bar — not hidden inside the density.",
+    "Advertencias": "Warnings",
+
+    # --- otras páginas ---
+    "Análisis de rindes": "Yield analysis",
+    "Estadística descriptiva": "Descriptive statistics",
+    "Peores campañas": "Worst seasons",
+    "Detrending": "Detrending",
+    "Pricing — Yield Shortfall": "Pricing — Yield Shortfall",
+    "Curva de garantías": "Guarantee curve",
+    "Loss cost por campaña": "Loss cost by season",
+    "Simulación Monte Carlo": "Monte Carlo simulation",
+    "Ajuste de distribuciones (AIC)": "Distribution fitting (AIC)",
+    "Datos": "Data", "Actualizar desde MAGyP": "Update from MAGyP",
+    "Descargar dataset completo": "Download full dataset",
+    "Descargar serie filtrada (CSV)": "Download filtered series (CSV)",
+    "No hay datos para esa combinación de filtros.":
+        "No data for that filter combination.",
+    "Rinde esperado (kg/ha)": "Expected yield (kg/ha)",
+    "Cobertura (%)": "Coverage (%)", "Deducible (%)": "Deductible (%)",
+    "Gastos": "Expenses", "Margen de riesgo": "Risk margin",
+    "Simulaciones": "Simulations", "Método": "Method",
+}
+
+
+def tr(s: str, **kw) -> str:
+    lang = st.session_state.get("lang", "es")
+    out = EN.get(s, s) if lang == "en" else s
+    return out.format(**kw) if kw else out

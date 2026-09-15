@@ -11,6 +11,8 @@ import streamlit as st
 from src.analytics import detrending, statistics as ystats
 from src.normalization import YieldNormalizationConfig, YieldNormalizationEngine
 from src.pricing import portfolio as pf
+from src.distribution import RiskDistributionConfig, RiskDistributionEngine
+from src.ui.i18n import tr
 from src.data import database
 from src.pricing import burning_cost as bc
 from src.pricing.yield_insurance import Coverage
@@ -31,34 +33,38 @@ df = get_data()
 st.sidebar.title("🌾 AGRO RATE")
 st.sidebar.caption("Agricultural Risk & Insurance Analytics")
 
+lang = st.sidebar.radio("🌐", ["ES", "EN"], horizontal=True,
+                        label_visibility="collapsed")
+st.session_state["lang"] = lang.lower()
+
 page = st.sidebar.radio(
-    "Módulo",
+    tr("Módulo"),
     ["📊 Resultados", "🏠 Dashboard", "🌱 Análisis de rindes", "📈 Detrending",
-     "🧠 Normalización", "💰 Pricing", "🎲 Monte Carlo", "📦 Datos"],
+     "🧠 Normalización", "📉 Riesgo", "💰 Pricing", "🎲 Monte Carlo", "📦 Datos"],
+    format_func=tr, key="nav_page",
 )
 
 cultivos = sorted(df["cultivo"].unique())
 _pref = next((i for i, c in enumerate(cultivos)
               if c.casefold() in ("soja total", "girasol", "maíz")), 0)
-cultivo = st.sidebar.selectbox("Cultivo", cultivos, index=_pref)
+cultivo = st.sidebar.selectbox(tr("Cultivo"), cultivos, index=_pref, key="f_cultivo")
 _sub = df.loc[df["cultivo"] == cultivo]
 deptos = sorted(_sub["departamento"].unique())
 _counts = _sub.groupby("departamento")["anio"].nunique()
 _best = _counts.idxmax() if len(_counts) else deptos[0]
-depto = st.sidebar.selectbox("Departamento", deptos,
-                             index=deptos.index(_best))
+depto = st.sidebar.selectbox(tr("Departamento"), deptos,
+                             index=deptos.index(_best), key="f_depto")
 
 anios = df.loc[(df["cultivo"] == cultivo) & (df["departamento"] == depto), "anio"]
 a_min, a_max = int(anios.min()), int(anios.max())
-desde, hasta = st.sidebar.slider("Período", a_min, a_max, (a_min, a_max))
+desde, hasta = st.sidebar.slider(tr("Período"), a_min, a_max, (a_min, a_max), key="f_periodo")
 
 serie = database.series(df, cultivo, depto, desde, hasta)
 
 method = st.sidebar.selectbox(
-    "Detrending",
+    tr("Detrending"),
     ["auto (motor)", "linear", "quadratic", "loess", "moving_average", "none"],
-    help="'auto' selecciona modelo, modo, start year y half-life con "
-         "validación out-of-sample (Yield Risk Normalization Engine)")
+    help=tr("'auto' selecciona modelo, modo, start year y half-life con validación out-of-sample (Yield Risk Normalization Engine)"), key="f_det")
 
 TARGET_YEAR = int(a_max) + 1
 
@@ -82,6 +88,15 @@ def engine_to_det(res, serie_df):
     out.attrs["reference_trend"] = res.expected_yield
     out.attrs["method"] = f"auto: {res.recommended.label()}"
     return out
+
+
+@st.cache_resource(show_spinner="Ejecutando Yield Risk Distribution Engine...")
+def run_risk_engine(cultivo: str, depto: str, desde_: int, hasta_: int,
+                    level: str, mode_exec: str, n_rows: int):
+    data = database.series(get_data(), cultivo, depto, desde_, hasta_)
+    eng = RiskDistributionEngine(RiskDistributionConfig(execution_mode=mode_exec))
+    return eng.run(data, crop=cultivo, location=depto,
+                   aggregation_level=level, target_year=hasta_ + 1)
 
 
 auto_result = None
@@ -118,7 +133,7 @@ def serie_chart(data: pd.DataFrame, show_trend: bool = False) -> go.Figure:
 
 
 if serie.empty:
-    st.warning("No hay datos para esa combinación de filtros.")
+    st.warning(tr("No hay datos para esa combinación de filtros."))
     st.stop()
 
 # ---------------------------------------------------------------- pages
@@ -166,14 +181,10 @@ def compute_portfolio(cultivo: str, provincia: str, desde: int, hasta: int,
 
 
 if page == "📊 Resultados":
-    st.title("Resultados — consolidado de cartera")
-    st.caption("Tarifación técnica propia (modelo area-yield sobre serie "
-               "normalizada) · escenario CAT · peor año histórico · loss cap")
+    st.title(tr("Resultados — consolidado de cartera"))
+    st.caption(tr("Tarifación técnica propia (modelo area-yield sobre serie normalizada) · escenario CAT · peor año histórico · loss cap"))
 
-    st.caption(f"**Del panel lateral aplican:** cultivo (**{cultivo}**) y "
-               f"período (**{desde}–{hasta}**). El departamento del panel "
-               "no aplica acá: se consolidan todos los elegibles de la "
-               "provincia seleccionada.")
+    st.caption(tr("**Del panel lateral aplican:** cultivo (**{c}**) y período (**{d}–{h}**). El departamento del panel no aplica acá: se consolidan todos los elegibles de la provincia seleccionada.", c=cultivo, d=desde, h=hasta))
     data = get_data()
     provincias = sorted(data.loc[data["cultivo"] == cultivo, "provincia"].unique())
     _prov_default = data.loc[(data["cultivo"] == cultivo)
@@ -183,29 +194,28 @@ if page == "📊 Resultados":
 
     with st.form("portfolio_form"):
         c1, c2, c3, c4 = st.columns(4)
-        provincia = c1.selectbox("Provincia", provincias, index=_prov_idx)
-        min_years = c2.number_input("Mín. campañas por depto", 10, 50, 25)
+        provincia = c1.selectbox(tr("Provincia"), provincias, index=_prov_idx)
+        min_years = c2.number_input(tr("Mín. campañas por depto"), 10, 50, 25)
         trigger_mode_lbl = c3.selectbox(
-            "Modo de garantía", ["% del rinde esperado", "rinde fijo (kg/ha)"])
+            tr("Modo de garantía"), ["% del rinde esperado", "rinde fijo (kg/ha)"],
+            format_func=tr)
         trigger_value = c4.number_input(
-            "Valor de garantía", 10.0, 5000.0,
+            tr("Valor de garantía"), 10.0, 5000.0,
             65.0 if trigger_mode_lbl.startswith("%") else 1000.0, step=5.0,
             help="65 ⇒ trigger = 65% del E[rinde] del motor · o kg/ha fijos")
         c1, c2, c3, c4 = st.columns(4)
-        sa_ha = c1.number_input("Suma asegurada (USD/ha)", 10.0, 5000.0, 200.0, step=10.0)
+        sa_ha = c1.number_input(tr("Suma asegurada (USD/ha)"), 10.0, 5000.0, 200.0, step=10.0)
         deductions = c2.number_input("Deductions", 0.0, 0.6, 0.25, step=0.01)
         margin = c3.number_input("MR Margin", 0.0, 0.5, 0.10, step=0.01)
-        ret_period = c4.selectbox("Período de retorno CAT", [50, 100, 200, 250], index=1)
+        ret_period = c4.selectbox(tr("Período de retorno CAT"), [50, 100, 200, 250], index=1)
         c1, c2 = st.columns([1, 3])
-        cap_on = c1.checkbox("Aplicar LOSS CAP")
-        cap_pct = c2.slider("Loss cap (% de la suma asegurada)", 10, 100, 50,
+        cap_on = c1.checkbox(tr("Aplicar LOSS CAP"))
+        cap_pct = c2.slider(tr("Loss cap (% de la suma asegurada)"), 10, 100, 50,
                             disabled=not cap_on)
-        run = st.form_submit_button("Calcular consolidado", type="primary")
+        run = st.form_submit_button(tr("Calcular consolidado"), type="primary")
 
     if not run and "pf_result" not in st.session_state:
-        st.info("Configurá los parámetros y presioná **Calcular consolidado**. "
-                "El motor de normalización corre por cada departamento "
-                "elegible (~2 s c/u la primera vez; después queda cacheado).")
+        st.info(tr("Configurá los parámetros y presioná **Calcular consolidado**. El motor de normalización corre por cada departamento elegible (~2 s c/u la primera vez; después queda cacheado)."))
         st.stop()
     if run:
         loss_cap = cap_pct / 100.0 if cap_on else None
@@ -218,38 +228,37 @@ if page == "📊 Resultados":
     cons, skipped, params = st.session_state["pf_result"]
 
     if cons is None:
-        st.warning("Ningún departamento elegible con esos filtros.")
+        st.warning(tr("Ningún departamento elegible con esos filtros."))
         st.stop()
 
     t = cons["table"]
     cap_active = params.loss_cap is not None
 
-    st.subheader("Totales de cartera")
-    st.caption(f"Serie utilizada: campañas {desde}–{hasta} · triggers sobre "
-               "E[rinde] estimado con esa ventana.")
+    st.subheader(tr("Totales de cartera"))
+    st.caption(tr("Serie utilizada: campañas {d}–{h} · triggers sobre E[rinde] estimado con esa ventana.", d=desde, h=hasta))
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Prima técnica total", f"${cons['prima_tecnica']:,.0f}",
+    c1.metric(tr("Prima técnica total"), f"${cons['prima_tecnica']:,.0f}",
               delta=(f"{cons['prima_tecnica']-cons['prima_tecnica_nocap']:+,.0f} vs sin cap"
                      if cap_active else None), delta_color="inverse")
-    c2.metric("Suma asegurada total", f"${cons['sa_total']:,.0f}",
+    c2.metric(tr("Suma asegurada total"), f"${cons['sa_total']:,.0f}",
               help=f"{cons['superficie']:,.0f} ha × {params.sum_insured_ha:,.0f} USD/ha")
-    c3.metric("Tasa técnica media", f"{cons['tasa_media']:.2%}")
-    c4.metric("Departamentos", f"{len(t)}",
+    c3.metric(tr("Tasa técnica media"), f"{cons['tasa_media']:.2%}")
+    c4.metric(tr("Departamentos"), f"{len(t)}",
               help=f"excluidos: {len(skipped)}")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric(f"Pérdida CAT (RP {params.return_period} años)",
+    c1.metric(tr("Pérdida CAT (RP {rp} años)", rp=params.return_period),
               f"${cons['perdida_cat']:,.0f}",
               delta=(f"{cons['perdida_cat']-cons['perdida_cat_nocap']:+,.0f} vs sin cap"
                      if cap_active else None), delta_color="inverse")
-    c2.metric("Siniestralidad CAT (siniestros/prima)",
+    c2.metric(tr("Siniestralidad CAT (siniestros/prima)"),
               f"{cons['pml_x']:.0%}",
               delta=(f"{cons['pml_x']-cons['pml_x_nocap']:+.0%} vs sin cap"
                      if cap_active else None), delta_color="inverse",
               help=f"equivale a PML {cons['pml_x']:.1f}× la prima técnica")
     if cons["worst_year"]:
-        c3.metric(f"Peor año histórico ({cons['worst_year']})",
+        c3.metric(tr("Peor año histórico ({y})", y=cons['worst_year']),
                   f"${cons['worst_loss']:,.0f}")
-        c4.metric(f"Siniestralidad {cons['worst_year']}",
+        c4.metric(tr("Siniestralidad {y}", y=cons['worst_year']),
                   f"{cons['worst_x']:.0%}",
                   help=f"equivale a {cons['worst_x']:.1f}× la prima técnica")
 
@@ -266,7 +275,7 @@ if page == "📊 Resultados":
             "El cap recorta la cola (CAT/PML) mucho más que la prima: "
             "es capacidad de reaseguro implícita.")
 
-    st.subheader("Detalle por departamento")
+    st.subheader(tr("Detalle por departamento"))
     show = pd.DataFrame({
         "Departamento": t["departamento"],
         "E[rinde] kg/ha": t["expected_yield"].round(0),
@@ -292,20 +301,21 @@ if page == "📊 Resultados":
            "LR CAT %": round(cons["pml_x"] * 100)}
     show = pd.concat([show, pd.DataFrame([tot])], ignore_index=True)
     st.dataframe(show, use_container_width=True, height=560)
-    st.download_button("⬇ Descargar CSV", show.to_csv(index=False).encode(),
+    st.download_button(tr("⬇ Descargar CSV"), show.to_csv(index=False).encode(),
                        file_name=f"resultados_{cultivo}_{provincia}.csv")
 
     c1, c2 = st.columns(2)
     with c1:
         fig = px.bar(t.sort_values("prima_tecnica"), x="prima_tecnica",
                      y="departamento", orientation="h",
-                     title="Prima técnica por departamento (USD)",
+                     title=tr("Prima técnica por departamento (USD)"),
                      labels={"prima_tecnica": "USD", "departamento": ""})
         fig.update_layout(height=480)
         st.plotly_chart(fig, use_container_width=True)
     with c2:
-        unidad = st.radio("Unidad del gráfico histórico",
+        unidad = st.radio(tr("Unidad del gráfico histórico"),
                           ["% Loss Ratio (siniestros/prima)", "USD"],
+                          format_func=tr,
                           horizontal=True, label_visibility="collapsed")
         py = cons["per_year"].copy()
         prima = max(cons["prima_tecnica"], 1e-9)
@@ -321,10 +331,10 @@ if page == "📊 Resultados":
             ylab, tit = "USD", "Pérdida histórica agregada por campaña (USD, a valores actuales)"
         if cap_active:
             fig = go.Figure()
-            fig.add_bar(x=py["year"], y=py["v_nocap"], name="sin cap",
+            fig.add_bar(x=py["year"], y=py["v_nocap"], name=tr("sin cap"),
                         marker_color="#bcd3ae")
             fig.add_bar(x=py["year"], y=py["v"],
-                        name=f"con cap {params.loss_cap:.0%}",
+                        name=tr("con cap {c:.0%}", c=params.loss_cap),
                         marker_color="#2e7d32")
             fig.update_layout(barmode="overlay", title=tit,
                               xaxis_title="Campaña", yaxis_title=ylab,
@@ -334,11 +344,11 @@ if page == "📊 Resultados":
                          labels={"year": "Campaña", "v": ylab})
         if as_lr:
             fig.add_hline(y=100, line_dash="dot", line_color="#B85042",
-                          annotation_text="LR 100% (siniestros = prima)")
+                          annotation_text=tr("LR 100% (siniestros = prima)"))
         if cons["worst_year"]:
             wv = (cons["worst_loss"] / prima * 100) if as_lr else cons["worst_loss"]
             fig.add_annotation(x=cons["worst_year"], y=wv,
-                               text=f"peor año: {cons['worst_year']}",
+                               text=tr("peor año: {y}", y=cons['worst_year']),
                                showarrow=True, arrowhead=2)
         fig.update_layout(height=480)
         st.plotly_chart(fig, use_container_width=True)
@@ -351,7 +361,7 @@ if page == "📊 Resultados":
                    "departamentos/campañas.")
 
     if cons["worst_detail"] is not None:
-        with st.expander(f"Detalle del peor año ({cons['worst_year']})"):
+        with st.expander(tr("Detalle del peor año ({y})", y=cons['worst_year'])):
             wd = cons["worst_detail"].copy()
             primas = t.set_index("departamento")["prima_tecnica"]
             wd["lr"] = (wd["loss"] / wd["departamento"].map(primas).clip(lower=1) * 100).round(0)
@@ -361,7 +371,7 @@ if page == "📊 Resultados":
             wd.columns = ["Departamento", "LC %", "Pérdida USD", "LR % (vs prima depto)"]
             st.dataframe(wd, use_container_width=True)
     if skipped:
-        with st.expander(f"Departamentos excluidos ({len(skipped)})"):
+        with st.expander(tr("Departamentos excluidos ({n})", n=len(skipped))):
             st.dataframe(pd.DataFrame(skipped, columns=["Departamento", "Motivo"]))
     st.caption("Metodología: trigger sobre E[rinde] del motor de normalización "
                "(FAST) · LC area-yield = max(0, T−y)/T sobre la serie "
@@ -387,12 +397,12 @@ elif page == "🏠 Dashboard":
     st.plotly_chart(serie_chart(det, show_trend=True), use_container_width=True)
 
 elif page == "🌱 Análisis de rindes":
-    st.title("Análisis de rindes")
+    st.title(tr("Análisis de rindes"))
     st.plotly_chart(serie_chart(serie), use_container_width=True)
 
     c1, c2 = st.columns([1, 1])
     with c1:
-        st.subheader("Estadística descriptiva")
+        st.subheader(tr("Estadística descriptiva"))
         st.dataframe(ystats.describe(serie["rendimiento_kgxha"])
                      .rename("valor").to_frame().style.format("{:,.1f}"))
     with c2:
@@ -400,7 +410,7 @@ elif page == "🌱 Análisis de rindes":
         fig = px.histogram(serie, x="rendimiento_kgxha", nbins=20,
                            labels={"rendimiento_kgxha": "kg/ha"})
         st.plotly_chart(fig, use_container_width=True)
-        st.subheader("Peores campañas")
+        st.subheader(tr("Peores campañas"))
         st.dataframe(ystats.worst_years(det, n=5))
 
 elif page == "📈 Detrending":
@@ -423,13 +433,12 @@ elif page == "📈 Detrending":
 
 
 elif page == "🧠 Normalización":
-    st.title("Yield Risk Normalization Engine")
+    st.title(tr("Yield Risk Normalization Engine"))
     st.caption("Selección automática de detrending con validación "
                "out-of-sample · regla one-standard-error")
 
-    mode = st.radio("Modo de ejecución", ["FAST", "FULL"], horizontal=True,
-                    help="FAST: interactivo. FULL: grid completo + "
-                         "Historical Information Value (governance/pricing).")
+    mode = st.radio(tr("Modo de ejecución"), ["FAST", "FULL"], horizontal=True,
+                    help=tr("FAST: interactivo. FULL: grid completo + Historical Information Value (governance/pricing)."))
     res = run_engine(cultivo, depto, desde, hasta, mode, len(serie))
 
     if res.status != "OK":
@@ -440,23 +449,23 @@ elif page == "🧠 Normalización":
     rec, hl = res.recommended, res.recommended.half_life_years
     hl_txt = "∞ (pesos iguales)" if hl == float("inf") else f"{hl:g} años"
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Modelo recomendado", rec.trend_model)
+    c1.metric(tr("Modelo recomendado"), rec.trend_model)
     c2.metric("Detrending", rec.detrending_mode)
-    c3.metric("Historia", f"{rec.start_year}–{int(det['anio'].max())}")
-    c4.metric("Half-life", hl_txt)
+    c3.metric(tr("Historia"), f"{rec.start_year}–{int(det['anio'].max())}")
+    c4.metric(tr("Half-life"), hl_txt)
     c1, c2, c3, c4 = st.columns(4)
     ci = res.expected_yield_ci
-    c1.metric(f"Rinde esperado {res.target_year}",
+    c1.metric(tr("Rinde esperado {y}", y=res.target_year),
               f"{res.expected_yield:,.0f} kg/ha",
               help=f"CI 90%: {ci[0]:,.0f} – {ci[1]:,.0f}")
-    c2.metric("N efectivo", f"{res.effective_sample_size:.1f}",
+    c2.metric(tr("N efectivo"), f"{res.effective_sample_size:.1f}",
               help=f"status: {res.sample_status}")
-    c3.metric("Confianza", res.selection_confidence,
+    c3.metric(tr("Confianza"), res.selection_confidence,
               help=f"estabilidad de selección: {res.selection_stability_pct:.0f}%")
-    c4.metric("Score actuarial", f"{res.validation_score:.4f}",
+    c4.metric(tr("Score actuarial"), f"{res.validation_score:.4f}",
               help=f"± {res.score_se:.4f} (SE) · tail {res.tail_score:.4f}")
 
-    with st.expander("¿Por qué este modelo?", expanded=True):
+    with st.expander(tr("¿Por qué este modelo?"), expanded=True):
         for r in res.selection_reason:
             st.write("–", r)
         if res.numerical_champion != res.recommended:
@@ -475,7 +484,7 @@ elif page == "🧠 Normalización":
     fig.add_scatter(x=[res.target_year], y=[res.expected_yield],
                     mode="markers", name=f"E[{res.target_year}]",
                     marker=dict(size=13, symbol="star"))
-    fig.update_layout(title="Rinde observado y tendencia tecnológica",
+    fig.update_layout(title=tr("Rinde observado y tendencia tecnológica"),
                       height=400, xaxis_title="Campaña", yaxis_title="kg/ha")
     st.plotly_chart(fig, use_container_width=True)
 
@@ -496,7 +505,7 @@ elif page == "🧠 Normalización":
                .sort_values("cv_score"))
         colors = ["SELECTED" in s or "champion" in s for s in bpm["status"]]
         fig = px.bar(bpm, x="cv_score", y="model", orientation="h",
-                     title="Actuarial Validation Score (mejor por modelo)",
+                     title=tr("Actuarial Validation Score (mejor por modelo)"),
                      labels={"cv_score": "score (menor = mejor)", "model": ""},
                      color=colors, color_discrete_map={True: "#2e7d32",
                                                        False: "#9e9e9e"})
@@ -505,7 +514,7 @@ elif page == "🧠 Normalización":
     with c2:
         # Chart 5 — peso histórico por año
         fig = px.bar(nh, x="year", y="historical_weight",
-                     title="Peso histórico por campaña (half-life)",
+                     title=tr("Peso histórico por campaña (half-life)"),
                      labels={"year": "Campaña", "historical_weight": "peso relativo"})
         fig.update_layout(height=340)
         st.plotly_chart(fig, use_container_width=True)
@@ -521,9 +530,9 @@ elif page == "🧠 Normalización":
         fig.update_layout(height=340)
         st.plotly_chart(fig, use_container_width=True)
     elif mode == "FAST":
-        st.caption("Historical Information Value disponible en modo FULL.")
+        st.caption(tr("Historical Information Value disponible en modo FULL."))
 
-    with st.expander("Diagnósticos actuariales (advanced)"):
+    with st.expander(tr("Diagnósticos actuariales (advanced)")):
         c1, c2 = st.columns(2)
         with c1:
             st.write("**Diagnósticos**")
@@ -553,14 +562,141 @@ elif page == "🧠 Normalización":
                    f"dataset hash {res.governance.get('dataset_hash','—')} · "
                    f"engine v{res.governance.get('engine_version','—')}")
 
+
+elif page == "📉 Riesgo":
+    st.title(tr("Yield Risk Distribution Engine"))
+    st.caption(tr("Distribución de riesgo tail-first: volatilidad · KDE "
+                  "benchmark · masa en cero · backtest asegurador"))
+    c1, c2 = st.columns([1, 1])
+    level = c1.selectbox(tr("Nivel de agregación"),
+                         ["DEPARTMENT", "PORTFOLIO", "FARM", "FIELD",
+                          "PROVINCE"],
+                         help=tr("Los datos fuente son departamentales; "
+                                 "niveles más finos aplican priors de "
+                                 "volatilidad y P(Y=0) configurables."))
+    mode_exec = c2.radio(tr("Modo de ejecución"), ["FAST", "FULL"],
+                         horizontal=True)
+    rk = run_risk_engine(cultivo, depto, desde, hasta, level, mode_exec,
+                         len(serie))
+    if rk.status != "OK":
+        st.warning(tr("INSUFFICIENT_DATA: la serie no alcanza para modelar "
+                      "sin inventar precisión."))
+        st.stop()
+
+    # -------- card por defecto (§60) ---------------------------------
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric(tr("Modelo recomendado"), rk.trend["model"],
+              help=f"{rk.trend['detrending_mode']} · desde {rk.trend['start_year']}")
+    c2.metric(tr("Distribución"), rk.distribution["label"],
+              help=tr("Campeón AIC") + f": {rk.distribution['numerical_aic_champion']}")
+    c3.metric(tr("Volatilidad"), rk.volatility["model"],
+              help=f"down/up SD = {rk.volatility['down_up_ratio']:.2f}")
+    c4.metric(tr("P(Y=0)"), f"{rk.zero_mass['p_zero']:.2%}",
+              help=tr("a nivel {x}", x=rk.zero_mass["aggregation_level"])
+                   + f" · {rk.zero_mass['estimation_method']}")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric(tr("Rinde esperado {y}", y=hasta + 1),
+              f"{rk.trend['target_yield']:,.0f} kg/ha")
+    c2.metric("P10", f"{rk.tail['p10']:,.0f} kg/ha",
+              help=f"P05 {rk.tail['p05']:,.0f} · P20 {rk.tail['p20']:,.0f} · "
+                   f"ES10 {rk.tail['es_10']:,.0f}")
+    c3.metric(tr("Prob. falla catastrófica"),
+              f"{rk.tail['prob_catastrophic']:.2%}",
+              help=tr("P(Y < 25% del esperado)"))
+    c4.metric(tr("Confianza"), rk.selection["confidence"],
+              help=f"estab. {rk.selection['stability_pct']:.0f}% · "
+                   f"score {rk.selection['risk_score']:.4f}")
+
+    with st.expander(tr("¿Por qué este modelo de riesgo?"), expanded=True):
+        for r in rk.selection["reason"]:
+            st.write("–", r)
+
+    # -------- distribución + zoom cola (§65-66, §68) ------------------
+    sims = rk.simulated_yields
+    zoom = st.radio(tr("Distribución de rindes simulada — zoom cola inferior"),
+                    ["Densidad completa", "Zoom cola (≤ P30)"],
+                    format_func=tr, horizontal=True)
+    pos = sims[sims > 0]
+    upper = float(np.quantile(sims, 0.30)) if zoom != "Densidad completa" else float(pos.max())
+    fig = go.Figure()
+    fig.add_histogram(x=pos[pos <= upper], nbinsx=60, histnorm="probability",
+                      marker_color="#97BC62", name=tr("rinde simulado (kg/ha)"))
+    p0 = rk.zero_mass["p_zero"]
+    if p0 > 0:
+        fig.add_bar(x=[0], y=[p0], width=[upper / 60], marker_color="#B85042",
+                    name="P(Y=0)")
+    for q, lbl in [(rk.tail["p05"], "P05"), (rk.tail["p10"], "P10"),
+                   (rk.tail["p20"], "P20")]:
+        if q <= upper:
+            fig.add_vline(x=q, line_dash="dot", annotation_text=lbl)
+    fig.update_layout(height=400, barmode="overlay",
+                      xaxis_title=tr("rinde simulado (kg/ha)"))
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption(tr("Masa en cero (P(Y=0) = {p:.2%}) mostrada como barra "
+                  "discreta — no se esconde en la densidad.", p=p0))
+
+    # -------- claim curve + backtest (§67, §61) -----------------------
+    c1, c2 = st.columns(2)
+    with c1:
+        cc = rk.claim_curve
+        fig = go.Figure()
+        fig.add_scatter(x=cc["coverage"] * 100, y=cc["expected_indemnity"] * 100,
+                        mode="lines+markers", name=tr("modelo"),
+                        line=dict(color="#2C5F2D", width=3))
+        fig.add_scatter(x=cc["coverage"] * 100, y=cc["hist_loss_cost"] * 100,
+                        mode="lines+markers", name=tr("histórico"),
+                        line=dict(dash="dash", color="#C9A227"))
+        fig.update_layout(title=tr("Curva de siniestros: prima pura vs nivel de cobertura"),
+                          xaxis_title=tr("Nivel de cobertura (% del rinde esperado)"),
+                          yaxis_title=tr("Prima pura (% de la garantía)"),
+                          height=380)
+        st.plotly_chart(fig, use_container_width=True)
+    with c2:
+        bt = pd.DataFrame(rk.insurance_validation["per_coverage"])
+        if len(bt):
+            fig = go.Figure()
+            fig.add_bar(x=bt["coverage"] * 100, y=bt["obs_freq"] * 100,
+                        name=tr("histórico"), marker_color="#C9A227")
+            fig.add_bar(x=bt["coverage"] * 100, y=bt["pred_freq"] * 100,
+                        name=tr("modelo"), marker_color="#2C5F2D")
+            fig.update_layout(title=tr("Frecuencia de siniestro: predicha vs observada"),
+                              barmode="group", height=380,
+                              xaxis_title=tr("Nivel de cobertura (% del rinde esperado)"),
+                              yaxis_title="%")
+            st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander(tr("Diagnósticos actuariales (advanced)")):
+        st.write(f"**{tr('Ranking de distribuciones (score asegurador)')}**")
+        st.dataframe(rk.ranking, use_container_width=True)
+        st.write(f"**{tr('Backtest por nivel de cobertura')}**")
+        if len(bt):
+            st.dataframe(bt.round(4), use_container_width=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write(f"**{tr('Volatilidad downside vs upside')}**")
+            st.json({k: (round(v, 4) if isinstance(v, float) else v)
+                     for k, v in rk.volatility.items() if k != "evidence"})
+        with c2:
+            st.write("**Zero mass**")
+            st.json({k: v for k, v in rk.zero_mass.items()
+                     if k != "classification"})
+        if rk.warnings:
+            st.write(f"**{tr('Advertencias')}**")
+            for w in rk.warnings:
+                st.warning(w)
+        st.caption(f"engine v{rk.governance['engine_version']} · "
+                   f"hash {rk.governance['dataset_hash']} · "
+                   f"{rk.timings['total_s']} s · "
+                   f"{rk.timings['n_candidates']} candidatos")
+
 elif page == "💰 Pricing":
-    st.title("Pricing — Yield Shortfall")
+    st.title(tr("Pricing — Yield Shortfall"))
 
     c1, c2, c3 = st.columns(3)
     _default_expected = (auto_result.expected_yield
                          if auto_result is not None and auto_result.status == "OK"
                          else det["trend"].iloc[-1])
-    expected = c1.number_input("Rinde esperado (kg/ha)",
+    expected = c1.number_input(tr("Rinde esperado (kg/ha)"),
                                value=float(round(_default_expected, -1)),
                                step=50.0)
     guarantee = c2.slider("Garantía", 0.50, 0.90, 0.70, 0.05)
@@ -579,14 +715,14 @@ elif page == "💰 Pricing":
                f"Suma asegurada: {cov.sum_insured:,.0f} USD/ha · "
                f"{res['n_years']} campañas")
 
-    st.subheader("Curva de garantías")
+    st.subheader(tr("Curva de garantías"))
     curve = bc.guarantee_curve(det["detrended"], expected, price)
     st.dataframe(curve.style.format({
         "guarantee": "{:.0%}", "guaranteed_yield": "{:,.0f}",
         "pure_premium_rate": "{:.2%}", "frequency": "{:.1%}",
         "severity": "{:.1%}"}))
 
-    st.subheader("Loss cost por campaña")
+    st.subheader(tr("Loss cost por campaña"))
     tabla = bc.yearly_table(det, cov)
     fig = px.bar(tabla, x="campania", y="loss_cost",
                  labels={"campania": "Campaña", "loss_cost": "Loss cost"})
@@ -594,13 +730,13 @@ elif page == "💰 Pricing":
     st.plotly_chart(fig, use_container_width=True)
 
 elif page == "🎲 Monte Carlo":
-    st.title("Simulación Monte Carlo")
+    st.title(tr("Simulación Monte Carlo"))
 
     c1, c2, c3 = st.columns(3)
     _default_expected = (auto_result.expected_yield
                          if auto_result is not None and auto_result.status == "OK"
                          else det["trend"].iloc[-1])
-    expected = c1.number_input("Rinde esperado (kg/ha)",
+    expected = c1.number_input(tr("Rinde esperado (kg/ha)"),
                                value=float(round(_default_expected, -1)),
                                step=50.0)
     guarantee = c2.slider("Garantía", 0.50, 0.90, 0.70, 0.05)
@@ -635,25 +771,25 @@ elif page == "🎲 Monte Carlo":
                       height=380)
     st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("Ajuste de distribuciones (AIC)")
+    st.subheader(tr("Ajuste de distribuciones (AIC)"))
     st.dataframe(fit_all(det["detrended"]).drop(columns="params"))
 
 elif page == "📦 Datos":
-    st.title("Datos")
+    st.title(tr("Datos"))
     st.write(f"**Fuente activa:** `{df.attrs.get('source', '—')}`")
     st.write(f"{len(df):,} filas · cultivos: {', '.join(cultivos)}")
 
     st.dataframe(serie, use_container_width=True)
-    st.download_button("Descargar serie filtrada (CSV)",
+    st.download_button(tr("Descargar serie filtrada (CSV)"),
                        serie.to_csv(index=False).encode(),
                        file_name=f"{cultivo}_{depto}.csv")
 
     st.divider()
-    st.subheader("Actualizar desde MAGyP")
+    st.subheader(tr("Actualizar desde MAGyP"))
     st.caption("Descarga el dataset completo de Estimaciones Agrícolas "
                "(datosestimaciones.magyp.gob.ar) y regenera el Parquet local. "
                "En producción esto lo hace la GitHub Action mensual.")
-    if st.button("Descargar dataset completo"):
+    if st.button(tr("Descargar dataset completo")):
         from src.data import magyp
         with st.spinner("Descargando Estimaciones.csv..."):
             try:
