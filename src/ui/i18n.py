@@ -129,6 +129,35 @@ EN = {
         "Zero mass (P(Y=0) = {p:.2%}) shown as a discrete bar — not hidden inside the density.",
     "Advertencias": "Warnings",
 
+
+    # --- pipeline reordenado ---
+    "📊 Resultados — cartera": "📊 Results — portfolio",
+    "1️⃣ Datos": "1️⃣ Data", "2️⃣ Exploración": "2️⃣ Exploration",
+    "3️⃣ Normalización (trend)": "3️⃣ Normalization (trend)",
+    "4️⃣ Riesgo + Monte Carlo": "4️⃣ Risk + Monte Carlo",
+    "5️⃣ Pricing": "5️⃣ Pricing",
+    "Pipeline: 1 datos → 2 exploración → 3 trend/normalización → 4 distribución de riesgo y MC → 5 pricing. Resultados consolida la cartera.":
+        "Pipeline: 1 data → 2 exploration → 3 trend/normalization → 4 risk distribution & MC → 5 pricing. Results consolidates the portfolio.",
+    "Paso 1 de 5 · fuente MAGyP → dataset parquet listo para modelar":
+        "Step 1 of 5 · MAGyP source → parquet dataset ready for modelling",
+    "Paso 2 de 5 · mirar la serie cruda antes de modelar":
+        "Step 2 of 5 · look at the raw series before modelling",
+    "Paso 3 de 5 · separar tecnología μ(t) del shock agrícola — acá NO se usa kernel: el KDE es solo para la distribución de shocks (paso 4)":
+        "Step 3 of 5 · separate technology μ(t) from the agricultural shock — NO kernel here: KDE only models the shock distribution (step 4)",
+    "Paso 4 de 5 · distribución de shocks (KDE benchmark, gates de cola) + masa en cero + Monte Carlo — reemplaza al módulo AIC viejo":
+        "Step 4 of 5 · shock distribution (KDE benchmark, tail gates) + zero mass + Monte Carlo — supersedes the old AIC module",
+    "Paso 5 de 5 · del rinde al precio: prima pura por nivel de garantía":
+        "Step 5 of 5 · from yield to price: pure premium by guarantee level",
+    "AUTO (motor)": "AUTO (engine)", "Manual (didáctico)": "Manual (didactic)",
+    "Motor AUTO (recomendado)": "AUTO engine (recommended)",
+    "Manual (legacy)": "Manual (legacy)",
+    "Versión manual: elegís vos el modelo de trend y ves el efecto. Para tarifar usá siempre AUTO.":
+        "Manual version: you pick the trend model and see the effect. For rating always use AUTO.",
+    "Módulo previo al motor: ajuste AIC simple sobre la serie detrendeada, sin gates ni masa en cero. Se mantiene para comparar.":
+        "Pre-engine module: plain AIC fitting on the detrended series, no gates, no zero mass. Kept for comparison.",
+    "Detrending manual": "Manual detrending",
+    "Simulación Monte Carlo manual": "Manual Monte Carlo simulation",
+
     # --- otras páginas ---
     "Análisis de rindes": "Yield analysis",
     "Estadística descriptiva": "Descriptive statistics",

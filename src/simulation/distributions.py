@@ -11,6 +11,7 @@ DISTRIBUTIONS = {
     "lognormal": stats.lognorm,
     "gamma": stats.gamma,
     "weibull": stats.weibull_min,
+    "student_t": stats.t,
 }
 
 

@@ -39,10 +39,11 @@ st.session_state["lang"] = lang.lower()
 
 page = st.sidebar.radio(
     tr("Módulo"),
-    ["📊 Resultados", "🏠 Dashboard", "🌱 Análisis de rindes", "📈 Detrending",
-     "🧠 Normalización", "📉 Riesgo", "💰 Pricing", "🎲 Monte Carlo", "📦 Datos"],
+    ["📊 Resultados — cartera", "1️⃣ Datos", "2️⃣ Exploración",
+     "3️⃣ Normalización (trend)", "4️⃣ Riesgo + Monte Carlo", "5️⃣ Pricing"],
     format_func=tr, key="nav_page",
 )
+st.sidebar.caption(tr("Pipeline: 1 datos → 2 exploración → 3 trend/normalización → 4 distribución de riesgo y MC → 5 pricing. Resultados consolida la cartera."))
 
 cultivos = sorted(df["cultivo"].unique())
 _pref = next((i for i, c in enumerate(cultivos)
@@ -180,7 +181,7 @@ def compute_portfolio(cultivo: str, provincia: str, desde: int, hasta: int,
     return cons, skipped, params
 
 
-if page == "📊 Resultados":
+if page == "📊 Resultados — cartera":
     st.title(tr("Resultados — consolidado de cartera"))
     st.caption(tr("Tarifación técnica propia (modelo area-yield sobre serie normalizada) · escenario CAT · peor año histórico · loss cap"))
 
@@ -380,9 +381,42 @@ if page == "📊 Resultados":
                "seleccionada por AIC · agregación comonótona (sin "
                "diversificación espacial, criterio conservador).")
 
-elif page == "🏠 Dashboard":
+
+elif page == "1️⃣ Datos":
+    st.caption(tr("Paso 1 de 5 · fuente MAGyP → dataset parquet listo para modelar"))
+
+    st.title(tr("Datos"))
+    st.write(f"**Fuente activa:** `{df.attrs.get('source', '—')}`")
+    st.write(f"{len(df):,} filas · cultivos: {', '.join(cultivos)}")
+
+    st.dataframe(serie, use_container_width=True)
+    st.download_button(tr("Descargar serie filtrada (CSV)"),
+                       serie.to_csv(index=False).encode(),
+                       file_name=f"{cultivo}_{depto}.csv")
+
+    st.divider()
+    st.subheader(tr("Actualizar desde MAGyP"))
+    st.caption("Descarga el dataset completo de Estimaciones Agrícolas "
+               "(datosestimaciones.magyp.gob.ar) y regenera el Parquet local. "
+               "En producción esto lo hace la GitHub Action mensual.")
+    if st.button(tr("Descargar dataset completo")):
+        from src.data import magyp
+        with st.spinner("Descargando Estimaciones.csv..."):
+            try:
+                csv_path = magyp.download_full_dataset()
+                full = magyp.load_dataset(csv_path)
+                magyp.to_parquet(database._normalize(full), database.PARQUET)
+                st.success(f"OK: {len(full):,} filas → {database.PARQUET}")
+                st.cache_data.clear()
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Falló la descarga: {exc}")
+
+
+elif page == "2️⃣ Exploración":
+    st.caption(tr("Paso 2 de 5 · mirar la serie cruda antes de modelar"))
+
     st.title("AGRO RATE")
-    st.caption(f"{cultivo.title()} · {depto} · Chaco · {desde}–{hasta}")
+    st.caption(f"{cultivo.title()} · {depto} · {desde}–{hasta}")
 
     stats_ = ystats.describe(serie["rendimiento_kgxha"])
     slope = detrending.trend_slope(serie)
@@ -396,8 +430,8 @@ elif page == "🏠 Dashboard":
 
     st.plotly_chart(serie_chart(det, show_trend=True), use_container_width=True)
 
-elif page == "🌱 Análisis de rindes":
-    st.title(tr("Análisis de rindes"))
+
+    st.subheader(tr("Análisis de rindes"))
     st.plotly_chart(serie_chart(serie), use_container_width=True)
 
     c1, c2 = st.columns([1, 1])
@@ -413,283 +447,342 @@ elif page == "🌱 Análisis de rindes":
         st.subheader(tr("Peores campañas"))
         st.dataframe(ystats.worst_years(det, n=5))
 
-elif page == "📈 Detrending":
-    st.title("Detrending")
-    st.caption(f"Método: **{method}** · Año de referencia: "
-               f"**{det.attrs.get('reference_year', '—')}**")
 
-    st.plotly_chart(serie_chart(det, show_trend=True), use_container_width=True)
+elif page == "3️⃣ Normalización (trend)":
+    st.caption(tr("Paso 3 de 5 · separar tecnología μ(t) del shock agrícola — acá NO se usa kernel: el KDE es solo para la distribución de shocks (paso 4)"))
+    tab_auto, tab_manual = st.tabs([tr("AUTO (motor)"), tr("Manual (didáctico)")])
+    with tab_auto:
 
-    fig = px.scatter(det, x="anio", y="detrended", hover_data=["campania"],
-                     labels={"anio": "Campaña",
-                             "detrended": "kg/ha (tecnología actual)"})
-    fig.update_traces(mode="lines+markers")
-    fig.update_layout(title="Serie detrendeada", height=420)
-    st.plotly_chart(fig, use_container_width=True)
+        st.title(tr("Yield Risk Normalization Engine"))
+        st.caption("Selección automática de detrending con validación "
+                   "out-of-sample · regla one-standard-error")
 
-    c1, c2 = st.columns(2)
-    c1.metric("CV original", f"{serie['rendimiento_kgxha'].std(ddof=1) / serie['rendimiento_kgxha'].mean():.0%}")
-    c2.metric("CV detrendeado", f"{det['detrended'].std(ddof=1) / det['detrended'].mean():.0%}")
+        mode = st.radio(tr("Modo de ejecución"), ["FAST", "FULL"], horizontal=True,
+                        help=tr("FAST: interactivo. FULL: grid completo + Historical Information Value (governance/pricing)."))
+        res = run_engine(cultivo, depto, desde, hasta, mode, len(serie))
 
+        if res.status != "OK":
+            st.warning("INSUFFICIENT_DATA: la serie no alcanza para modelar "
+                       "sin inventar precisión.")
+            st.stop()
 
-elif page == "🧠 Normalización":
-    st.title(tr("Yield Risk Normalization Engine"))
-    st.caption("Selección automática de detrending con validación "
-               "out-of-sample · regla one-standard-error")
+        rec, hl = res.recommended, res.recommended.half_life_years
+        hl_txt = "∞ (pesos iguales)" if hl == float("inf") else f"{hl:g} años"
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric(tr("Modelo recomendado"), rec.trend_model)
+        c2.metric("Detrending", rec.detrending_mode)
+        c3.metric(tr("Historia"), f"{rec.start_year}–{int(det['anio'].max())}")
+        c4.metric(tr("Half-life"), hl_txt)
+        c1, c2, c3, c4 = st.columns(4)
+        ci = res.expected_yield_ci
+        c1.metric(tr("Rinde esperado {y}", y=res.target_year),
+                  f"{res.expected_yield:,.0f} kg/ha",
+                  help=f"CI 90%: {ci[0]:,.0f} – {ci[1]:,.0f}")
+        c2.metric(tr("N efectivo"), f"{res.effective_sample_size:.1f}",
+                  help=f"status: {res.sample_status}")
+        c3.metric(tr("Confianza"), res.selection_confidence,
+                  help=f"estabilidad de selección: {res.selection_stability_pct:.0f}%")
+        c4.metric(tr("Score actuarial"), f"{res.validation_score:.4f}",
+                  help=f"± {res.score_se:.4f} (SE) · tail {res.tail_score:.4f}")
 
-    mode = st.radio(tr("Modo de ejecución"), ["FAST", "FULL"], horizontal=True,
-                    help=tr("FAST: interactivo. FULL: grid completo + Historical Information Value (governance/pricing)."))
-    res = run_engine(cultivo, depto, desde, hasta, mode, len(serie))
+        with st.expander(tr("¿Por qué este modelo?"), expanded=True):
+            for r in res.selection_reason:
+                st.write("–", r)
+            if res.numerical_champion != res.recommended:
+                st.caption(f"Campeón numérico: {res.numerical_champion.label()} "
+                           f"(score {res.numerical_champion_score:.4f})")
 
-    if res.status != "OK":
-        st.warning("INSUFFICIENT_DATA: la serie no alcanza para modelar "
-                   "sin inventar precisión.")
-        st.stop()
+        nh = res.normalized_history
 
-    rec, hl = res.recommended, res.recommended.half_life_years
-    hl_txt = "∞ (pesos iguales)" if hl == float("inf") else f"{hl:g} años"
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric(tr("Modelo recomendado"), rec.trend_model)
-    c2.metric("Detrending", rec.detrending_mode)
-    c3.metric(tr("Historia"), f"{rec.start_year}–{int(det['anio'].max())}")
-    c4.metric(tr("Half-life"), hl_txt)
-    c1, c2, c3, c4 = st.columns(4)
-    ci = res.expected_yield_ci
-    c1.metric(tr("Rinde esperado {y}", y=res.target_year),
-              f"{res.expected_yield:,.0f} kg/ha",
-              help=f"CI 90%: {ci[0]:,.0f} – {ci[1]:,.0f}")
-    c2.metric(tr("N efectivo"), f"{res.effective_sample_size:.1f}",
-              help=f"status: {res.sample_status}")
-    c3.metric(tr("Confianza"), res.selection_confidence,
-              help=f"estabilidad de selección: {res.selection_stability_pct:.0f}%")
-    c4.metric(tr("Score actuarial"), f"{res.validation_score:.4f}",
-              help=f"± {res.score_se:.4f} (SE) · tail {res.tail_score:.4f}")
-
-    with st.expander(tr("¿Por qué este modelo?"), expanded=True):
-        for r in res.selection_reason:
-            st.write("–", r)
-        if res.numerical_champion != res.recommended:
-            st.caption(f"Campeón numérico: {res.numerical_champion.label()} "
-                       f"(score {res.numerical_champion_score:.4f})")
-
-    nh = res.normalized_history
-
-    # Chart 1 — observado vs trend + target
-    fig = go.Figure()
-    fig.add_scatter(x=nh["year"], y=nh["observed_yield"],
-                    mode="lines+markers", name="Observado")
-    fig.add_scatter(x=nh["year"], y=nh["historical_trend"],
-                    mode="lines", name="Trend seleccionado",
-                    line=dict(dash="dash"))
-    fig.add_scatter(x=[res.target_year], y=[res.expected_yield],
-                    mode="markers", name=f"E[{res.target_year}]",
-                    marker=dict(size=13, symbol="star"))
-    fig.update_layout(title=tr("Rinde observado y tendencia tecnológica"),
-                      height=400, xaxis_title="Campaña", yaxis_title="kg/ha")
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Chart 2 — historia normalizada
-    fig = px.bar(nh, x="year", y="normalized_yield",
-                 title=f"Historia normalizada a tecnología {res.target_year}",
-                 labels={"year": "Campaña", "normalized_yield": "kg/ha equivalentes"})
-    fig.add_hline(y=res.expected_yield, line_dash="dot",
-                  annotation_text="rinde esperado")
-    fig.update_layout(height=380)
-    st.plotly_chart(fig, use_container_width=True)
-
-    c1, c2 = st.columns(2)
-    with c1:
-        # Chart 3 — comparación de modelos (mejor score por modelo)
-        r = res.model_ranking
-        bpm = (r.loc[r.groupby("model")["cv_score"].idxmin()]
-               .sort_values("cv_score"))
-        colors = ["SELECTED" in s or "champion" in s for s in bpm["status"]]
-        fig = px.bar(bpm, x="cv_score", y="model", orientation="h",
-                     title=tr("Actuarial Validation Score (mejor por modelo)"),
-                     labels={"cv_score": "score (menor = mejor)", "model": ""},
-                     color=colors, color_discrete_map={True: "#2e7d32",
-                                                       False: "#9e9e9e"})
-        fig.update_layout(height=340, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True)
-    with c2:
-        # Chart 5 — peso histórico por año
-        fig = px.bar(nh, x="year", y="historical_weight",
-                     title=tr("Peso histórico por campaña (half-life)"),
-                     labels={"year": "Campaña", "historical_weight": "peso relativo"})
-        fig.update_layout(height=340)
+        # Chart 1 — observado vs trend + target
+        fig = go.Figure()
+        fig.add_scatter(x=nh["year"], y=nh["observed_yield"],
+                        mode="lines+markers", name="Observado")
+        fig.add_scatter(x=nh["year"], y=nh["historical_trend"],
+                        mode="lines", name="Trend seleccionado",
+                        line=dict(dash="dash"))
+        fig.add_scatter(x=[res.target_year], y=[res.expected_yield],
+                        mode="markers", name=f"E[{res.target_year}]",
+                        marker=dict(size=13, symbol="star"))
+        fig.update_layout(title=tr("Rinde observado y tendencia tecnológica"),
+                          height=400, xaxis_title="Campaña", yaxis_title="kg/ha")
         st.plotly_chart(fig, use_container_width=True)
 
-    # Chart 4 — HIV (solo FULL)
-    if res.historical_information_value is not None and len(res.historical_information_value):
-        hiv = res.historical_information_value
-        fig = px.bar(hiv, x="period", y="information_value",
-                     title="Historical Information Value por bloque "
-                           "(positivo = el bloque ayuda)",
-                     labels={"period": "", "information_value": "ΔScore sin el bloque"},
-                     hover_data=["recommendation"])
-        fig.update_layout(height=340)
+        # Chart 2 — historia normalizada
+        fig = px.bar(nh, x="year", y="normalized_yield",
+                     title=f"Historia normalizada a tecnología {res.target_year}",
+                     labels={"year": "Campaña", "normalized_yield": "kg/ha equivalentes"})
+        fig.add_hline(y=res.expected_yield, line_dash="dot",
+                      annotation_text="rinde esperado")
+        fig.update_layout(height=380)
         st.plotly_chart(fig, use_container_width=True)
-    elif mode == "FAST":
-        st.caption(tr("Historical Information Value disponible en modo FULL."))
 
-    with st.expander(tr("Diagnósticos actuariales (advanced)")):
         c1, c2 = st.columns(2)
         with c1:
-            st.write("**Diagnósticos**")
-            st.json(res.diagnostics)
-            sb = res.structural_break
-            st.write("**Structural break**")
-            st.write(f"{sb.confidence}"
-                     + (f" · año {sb.year} · p={sb.p_value:.3f} · "
-                        f"acción sugerida: {sb.suggested_action}"
-                        if sb.detected else " (no detectado)"))
-            if sb.note:
-                st.caption(sb.note)
+            # Chart 3 — comparación de modelos (mejor score por modelo)
+            r = res.model_ranking
+            bpm = (r.loc[r.groupby("model")["cv_score"].idxmin()]
+                   .sort_values("cv_score"))
+            colors = ["SELECTED" in s or "champion" in s for s in bpm["status"]]
+            fig = px.bar(bpm, x="cv_score", y="model", orientation="h",
+                         title=tr("Actuarial Validation Score (mejor por modelo)"),
+                         labels={"cv_score": "score (menor = mejor)", "model": ""},
+                         color=colors, color_discrete_map={True: "#2e7d32",
+                                                           False: "#9e9e9e"})
+            fig.update_layout(height=340, showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
         with c2:
-            st.write("**Calidad de datos**")
-            if res.data_quality:
-                st.dataframe(pd.DataFrame(res.data_quality), height=200)
-            else:
-                st.write("Sin observaciones.")
-            if res.warnings:
-                st.write("**Warnings**")
-                for w in res.warnings:
-                    st.warning(w)
-        st.write("**Ranking completo**")
-        st.dataframe(res.model_ranking, height=300, use_container_width=True)
-        st.caption(f"Ejecución: {res.timings.get('total_s','—')} s · "
-                   f"{res.timings.get('n_candidates','—')} configuraciones · "
-                   f"dataset hash {res.governance.get('dataset_hash','—')} · "
-                   f"engine v{res.governance.get('engine_version','—')}")
-
-
-elif page == "📉 Riesgo":
-    st.title(tr("Yield Risk Distribution Engine"))
-    st.caption(tr("Distribución de riesgo tail-first: volatilidad · KDE "
-                  "benchmark · masa en cero · backtest asegurador"))
-    c1, c2 = st.columns([1, 1])
-    level = c1.selectbox(tr("Nivel de agregación"),
-                         ["DEPARTMENT", "PORTFOLIO", "FARM", "FIELD",
-                          "PROVINCE"],
-                         help=tr("Los datos fuente son departamentales; "
-                                 "niveles más finos aplican priors de "
-                                 "volatilidad y P(Y=0) configurables."))
-    mode_exec = c2.radio(tr("Modo de ejecución"), ["FAST", "FULL"],
-                         horizontal=True)
-    rk = run_risk_engine(cultivo, depto, desde, hasta, level, mode_exec,
-                         len(serie))
-    if rk.status != "OK":
-        st.warning(tr("INSUFFICIENT_DATA: la serie no alcanza para modelar "
-                      "sin inventar precisión."))
-        st.stop()
-
-    # -------- card por defecto (§60) ---------------------------------
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric(tr("Modelo recomendado"), rk.trend["model"],
-              help=f"{rk.trend['detrending_mode']} · desde {rk.trend['start_year']}")
-    c2.metric(tr("Distribución"), rk.distribution["label"],
-              help=tr("Campeón AIC") + f": {rk.distribution['numerical_aic_champion']}")
-    c3.metric(tr("Volatilidad"), rk.volatility["model"],
-              help=f"down/up SD = {rk.volatility['down_up_ratio']:.2f}")
-    c4.metric(tr("P(Y=0)"), f"{rk.zero_mass['p_zero']:.2%}",
-              help=tr("a nivel {x}", x=rk.zero_mass["aggregation_level"])
-                   + f" · {rk.zero_mass['estimation_method']}")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric(tr("Rinde esperado {y}", y=hasta + 1),
-              f"{rk.trend['target_yield']:,.0f} kg/ha")
-    c2.metric("P10", f"{rk.tail['p10']:,.0f} kg/ha",
-              help=f"P05 {rk.tail['p05']:,.0f} · P20 {rk.tail['p20']:,.0f} · "
-                   f"ES10 {rk.tail['es_10']:,.0f}")
-    c3.metric(tr("Prob. falla catastrófica"),
-              f"{rk.tail['prob_catastrophic']:.2%}",
-              help=tr("P(Y < 25% del esperado)"))
-    c4.metric(tr("Confianza"), rk.selection["confidence"],
-              help=f"estab. {rk.selection['stability_pct']:.0f}% · "
-                   f"score {rk.selection['risk_score']:.4f}")
-
-    with st.expander(tr("¿Por qué este modelo de riesgo?"), expanded=True):
-        for r in rk.selection["reason"]:
-            st.write("–", r)
-
-    # -------- distribución + zoom cola (§65-66, §68) ------------------
-    sims = rk.simulated_yields
-    zoom = st.radio(tr("Distribución de rindes simulada — zoom cola inferior"),
-                    ["Densidad completa", "Zoom cola (≤ P30)"],
-                    format_func=tr, horizontal=True)
-    pos = sims[sims > 0]
-    upper = float(np.quantile(sims, 0.30)) if zoom != "Densidad completa" else float(pos.max())
-    fig = go.Figure()
-    fig.add_histogram(x=pos[pos <= upper], nbinsx=60, histnorm="probability",
-                      marker_color="#97BC62", name=tr("rinde simulado (kg/ha)"))
-    p0 = rk.zero_mass["p_zero"]
-    if p0 > 0:
-        fig.add_bar(x=[0], y=[p0], width=[upper / 60], marker_color="#B85042",
-                    name="P(Y=0)")
-    for q, lbl in [(rk.tail["p05"], "P05"), (rk.tail["p10"], "P10"),
-                   (rk.tail["p20"], "P20")]:
-        if q <= upper:
-            fig.add_vline(x=q, line_dash="dot", annotation_text=lbl)
-    fig.update_layout(height=400, barmode="overlay",
-                      xaxis_title=tr("rinde simulado (kg/ha)"))
-    st.plotly_chart(fig, use_container_width=True)
-    st.caption(tr("Masa en cero (P(Y=0) = {p:.2%}) mostrada como barra "
-                  "discreta — no se esconde en la densidad.", p=p0))
-
-    # -------- claim curve + backtest (§67, §61) -----------------------
-    c1, c2 = st.columns(2)
-    with c1:
-        cc = rk.claim_curve
-        fig = go.Figure()
-        fig.add_scatter(x=cc["coverage"] * 100, y=cc["expected_indemnity"] * 100,
-                        mode="lines+markers", name=tr("modelo"),
-                        line=dict(color="#2C5F2D", width=3))
-        fig.add_scatter(x=cc["coverage"] * 100, y=cc["hist_loss_cost"] * 100,
-                        mode="lines+markers", name=tr("histórico"),
-                        line=dict(dash="dash", color="#C9A227"))
-        fig.update_layout(title=tr("Curva de siniestros: prima pura vs nivel de cobertura"),
-                          xaxis_title=tr("Nivel de cobertura (% del rinde esperado)"),
-                          yaxis_title=tr("Prima pura (% de la garantía)"),
-                          height=380)
-        st.plotly_chart(fig, use_container_width=True)
-    with c2:
-        bt = pd.DataFrame(rk.insurance_validation["per_coverage"])
-        if len(bt):
-            fig = go.Figure()
-            fig.add_bar(x=bt["coverage"] * 100, y=bt["obs_freq"] * 100,
-                        name=tr("histórico"), marker_color="#C9A227")
-            fig.add_bar(x=bt["coverage"] * 100, y=bt["pred_freq"] * 100,
-                        name=tr("modelo"), marker_color="#2C5F2D")
-            fig.update_layout(title=tr("Frecuencia de siniestro: predicha vs observada"),
-                              barmode="group", height=380,
-                              xaxis_title=tr("Nivel de cobertura (% del rinde esperado)"),
-                              yaxis_title="%")
+            # Chart 5 — peso histórico por año
+            fig = px.bar(nh, x="year", y="historical_weight",
+                         title=tr("Peso histórico por campaña (half-life)"),
+                         labels={"year": "Campaña", "historical_weight": "peso relativo"})
+            fig.update_layout(height=340)
             st.plotly_chart(fig, use_container_width=True)
 
-    with st.expander(tr("Diagnósticos actuariales (advanced)")):
-        st.write(f"**{tr('Ranking de distribuciones (score asegurador)')}**")
-        st.dataframe(rk.ranking, use_container_width=True)
-        st.write(f"**{tr('Backtest por nivel de cobertura')}**")
-        if len(bt):
-            st.dataframe(bt.round(4), use_container_width=True)
+        # Chart 4 — HIV (solo FULL)
+        if res.historical_information_value is not None and len(res.historical_information_value):
+            hiv = res.historical_information_value
+            fig = px.bar(hiv, x="period", y="information_value",
+                         title="Historical Information Value por bloque "
+                               "(positivo = el bloque ayuda)",
+                         labels={"period": "", "information_value": "ΔScore sin el bloque"},
+                         hover_data=["recommendation"])
+            fig.update_layout(height=340)
+            st.plotly_chart(fig, use_container_width=True)
+        elif mode == "FAST":
+            st.caption(tr("Historical Information Value disponible en modo FULL."))
+
+        with st.expander(tr("Diagnósticos actuariales (advanced)")):
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write("**Diagnósticos**")
+                st.json(res.diagnostics)
+                sb = res.structural_break
+                st.write("**Structural break**")
+                st.write(f"{sb.confidence}"
+                         + (f" · año {sb.year} · p={sb.p_value:.3f} · "
+                            f"acción sugerida: {sb.suggested_action}"
+                            if sb.detected else " (no detectado)"))
+                if sb.note:
+                    st.caption(sb.note)
+            with c2:
+                st.write("**Calidad de datos**")
+                if res.data_quality:
+                    st.dataframe(pd.DataFrame(res.data_quality), height=200)
+                else:
+                    st.write("Sin observaciones.")
+                if res.warnings:
+                    st.write("**Warnings**")
+                    for w in res.warnings:
+                        st.warning(w)
+            st.write("**Ranking completo**")
+            st.dataframe(res.model_ranking, height=300, use_container_width=True)
+            st.caption(f"Ejecución: {res.timings.get('total_s','—')} s · "
+                       f"{res.timings.get('n_candidates','—')} configuraciones · "
+                       f"dataset hash {res.governance.get('dataset_hash','—')} · "
+                       f"engine v{res.governance.get('engine_version','—')}")
+    with tab_manual:
+        st.caption(tr("Versión manual: elegís vos el modelo de trend y ves el efecto. Para tarifar usá siempre AUTO."))
+
+        st.subheader(tr("Detrending manual"))
+        st.caption(f"Método: **{method}** · Año de referencia: "
+                   f"**{det.attrs.get('reference_year', '—')}**")
+
+        st.plotly_chart(serie_chart(det, show_trend=True), use_container_width=True)
+
+        fig = px.scatter(det, x="anio", y="detrended", hover_data=["campania"],
+                         labels={"anio": "Campaña",
+                                 "detrended": "kg/ha (tecnología actual)"})
+        fig.update_traces(mode="lines+markers")
+        fig.update_layout(title="Serie detrendeada", height=420)
+        st.plotly_chart(fig, use_container_width=True)
+
+        c1, c2 = st.columns(2)
+        c1.metric("CV original", f"{serie['rendimiento_kgxha'].std(ddof=1) / serie['rendimiento_kgxha'].mean():.0%}")
+        c2.metric("CV detrendeado", f"{det['detrended'].std(ddof=1) / det['detrended'].mean():.0%}")
+
+
+elif page == "4️⃣ Riesgo + Monte Carlo":
+    st.caption(tr("Paso 4 de 5 · distribución de shocks (KDE benchmark, gates de cola) + masa en cero + Monte Carlo — reemplaza al módulo AIC viejo"))
+    tab_auto, tab_manual = st.tabs([tr("Motor AUTO (recomendado)"), tr("Manual (legacy)")])
+    with tab_auto:
+
+        st.title(tr("Yield Risk Distribution Engine"))
+        st.caption(tr("Distribución de riesgo tail-first: volatilidad · KDE "
+                      "benchmark · masa en cero · backtest asegurador"))
+        c1, c2 = st.columns([1, 1])
+        level = c1.selectbox(tr("Nivel de agregación"),
+                             ["DEPARTMENT", "PORTFOLIO", "FARM", "FIELD",
+                              "PROVINCE"],
+                             help=tr("Los datos fuente son departamentales; "
+                                     "niveles más finos aplican priors de "
+                                     "volatilidad y P(Y=0) configurables."))
+        mode_exec = c2.radio(tr("Modo de ejecución"), ["FAST", "FULL"],
+                             horizontal=True)
+        rk = run_risk_engine(cultivo, depto, desde, hasta, level, mode_exec,
+                             len(serie))
+        if rk.status != "OK":
+            st.warning(tr("INSUFFICIENT_DATA: la serie no alcanza para modelar "
+                          "sin inventar precisión."))
+            st.stop()
+
+        # -------- card por defecto (§60) ---------------------------------
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric(tr("Modelo recomendado"), rk.trend["model"],
+                  help=f"{rk.trend['detrending_mode']} · desde {rk.trend['start_year']}")
+        c2.metric(tr("Distribución"), rk.distribution["label"],
+                  help=tr("Campeón AIC") + f": {rk.distribution['numerical_aic_champion']}")
+        c3.metric(tr("Volatilidad"), rk.volatility["model"],
+                  help=f"down/up SD = {rk.volatility['down_up_ratio']:.2f}")
+        c4.metric(tr("P(Y=0)"), f"{rk.zero_mass['p_zero']:.2%}",
+                  help=tr("a nivel {x}", x=rk.zero_mass["aggregation_level"])
+                       + f" · {rk.zero_mass['estimation_method']}")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric(tr("Rinde esperado {y}", y=hasta + 1),
+                  f"{rk.trend['target_yield']:,.0f} kg/ha")
+        c2.metric("P10", f"{rk.tail['p10']:,.0f} kg/ha",
+                  help=f"P05 {rk.tail['p05']:,.0f} · P20 {rk.tail['p20']:,.0f} · "
+                       f"ES10 {rk.tail['es_10']:,.0f}")
+        c3.metric(tr("Prob. falla catastrófica"),
+                  f"{rk.tail['prob_catastrophic']:.2%}",
+                  help=tr("P(Y < 25% del esperado)"))
+        c4.metric(tr("Confianza"), rk.selection["confidence"],
+                  help=f"estab. {rk.selection['stability_pct']:.0f}% · "
+                       f"score {rk.selection['risk_score']:.4f}")
+
+        with st.expander(tr("¿Por qué este modelo de riesgo?"), expanded=True):
+            for r in rk.selection["reason"]:
+                st.write("–", r)
+
+        # -------- distribución + zoom cola (§65-66, §68) ------------------
+        sims = rk.simulated_yields
+        zoom = st.radio(tr("Distribución de rindes simulada — zoom cola inferior"),
+                        ["Densidad completa", "Zoom cola (≤ P30)"],
+                        format_func=tr, horizontal=True)
+        pos = sims[sims > 0]
+        upper = float(np.quantile(sims, 0.30)) if zoom != "Densidad completa" else float(pos.max())
+        fig = go.Figure()
+        fig.add_histogram(x=pos[pos <= upper], nbinsx=60, histnorm="probability",
+                          marker_color="#97BC62", name=tr("rinde simulado (kg/ha)"))
+        p0 = rk.zero_mass["p_zero"]
+        if p0 > 0:
+            fig.add_bar(x=[0], y=[p0], width=[upper / 60], marker_color="#B85042",
+                        name="P(Y=0)")
+        for q, lbl in [(rk.tail["p05"], "P05"), (rk.tail["p10"], "P10"),
+                       (rk.tail["p20"], "P20")]:
+            if q <= upper:
+                fig.add_vline(x=q, line_dash="dot", annotation_text=lbl)
+        fig.update_layout(height=400, barmode="overlay",
+                          xaxis_title=tr("rinde simulado (kg/ha)"))
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption(tr("Masa en cero (P(Y=0) = {p:.2%}) mostrada como barra "
+                      "discreta — no se esconde en la densidad.", p=p0))
+
+        # -------- claim curve + backtest (§67, §61) -----------------------
         c1, c2 = st.columns(2)
         with c1:
-            st.write(f"**{tr('Volatilidad downside vs upside')}**")
-            st.json({k: (round(v, 4) if isinstance(v, float) else v)
-                     for k, v in rk.volatility.items() if k != "evidence"})
+            cc = rk.claim_curve
+            fig = go.Figure()
+            fig.add_scatter(x=cc["coverage"] * 100, y=cc["expected_indemnity"] * 100,
+                            mode="lines+markers", name=tr("modelo"),
+                            line=dict(color="#2C5F2D", width=3))
+            fig.add_scatter(x=cc["coverage"] * 100, y=cc["hist_loss_cost"] * 100,
+                            mode="lines+markers", name=tr("histórico"),
+                            line=dict(dash="dash", color="#C9A227"))
+            fig.update_layout(title=tr("Curva de siniestros: prima pura vs nivel de cobertura"),
+                              xaxis_title=tr("Nivel de cobertura (% del rinde esperado)"),
+                              yaxis_title=tr("Prima pura (% de la garantía)"),
+                              height=380)
+            st.plotly_chart(fig, use_container_width=True)
         with c2:
-            st.write("**Zero mass**")
-            st.json({k: v for k, v in rk.zero_mass.items()
-                     if k != "classification"})
-        if rk.warnings:
-            st.write(f"**{tr('Advertencias')}**")
-            for w in rk.warnings:
-                st.warning(w)
-        st.caption(f"engine v{rk.governance['engine_version']} · "
-                   f"hash {rk.governance['dataset_hash']} · "
-                   f"{rk.timings['total_s']} s · "
-                   f"{rk.timings['n_candidates']} candidatos")
+            bt = pd.DataFrame(rk.insurance_validation["per_coverage"])
+            if len(bt):
+                fig = go.Figure()
+                fig.add_bar(x=bt["coverage"] * 100, y=bt["obs_freq"] * 100,
+                            name=tr("histórico"), marker_color="#C9A227")
+                fig.add_bar(x=bt["coverage"] * 100, y=bt["pred_freq"] * 100,
+                            name=tr("modelo"), marker_color="#2C5F2D")
+                fig.update_layout(title=tr("Frecuencia de siniestro: predicha vs observada"),
+                                  barmode="group", height=380,
+                                  xaxis_title=tr("Nivel de cobertura (% del rinde esperado)"),
+                                  yaxis_title="%")
+                st.plotly_chart(fig, use_container_width=True)
 
-elif page == "💰 Pricing":
+        with st.expander(tr("Diagnósticos actuariales (advanced)")):
+            st.write(f"**{tr('Ranking de distribuciones (score asegurador)')}**")
+            st.dataframe(rk.ranking, use_container_width=True)
+            st.write(f"**{tr('Backtest por nivel de cobertura')}**")
+            if len(bt):
+                st.dataframe(bt.round(4), use_container_width=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write(f"**{tr('Volatilidad downside vs upside')}**")
+                st.json({k: (round(v, 4) if isinstance(v, float) else v)
+                         for k, v in rk.volatility.items() if k != "evidence"})
+            with c2:
+                st.write("**Zero mass**")
+                st.json({k: v for k, v in rk.zero_mass.items()
+                         if k != "classification"})
+            if rk.warnings:
+                st.write(f"**{tr('Advertencias')}**")
+                for w in rk.warnings:
+                    st.warning(w)
+            st.caption(f"engine v{rk.governance['engine_version']} · "
+                       f"hash {rk.governance['dataset_hash']} · "
+                       f"{rk.timings['total_s']} s · "
+                       f"{rk.timings['n_candidates']} candidatos")
+    with tab_manual:
+        st.caption(tr("Módulo previo al motor: ajuste AIC simple sobre la serie detrendeada, sin gates ni masa en cero. Se mantiene para comparar."))
+
+        st.subheader(tr("Simulación Monte Carlo manual"))
+
+        c1, c2, c3 = st.columns(3)
+        _default_expected = (auto_result.expected_yield
+                             if auto_result is not None and auto_result.status == "OK"
+                             else det["trend"].iloc[-1])
+        expected = c1.number_input(tr("Rinde esperado (kg/ha)"),
+                                   value=float(round(_default_expected, -1)),
+                                   step=50.0)
+        guarantee = c2.slider("Garantía", 0.50, 0.90, 0.70, 0.05)
+        price = c3.number_input("Precio (USD/kg)", value=0.40, step=0.05)
+
+        c1, c2, c3 = st.columns(3)
+        distribution = c1.selectbox(
+            "Distribución",
+            ["empirical bootstrap", "kde", "normal", "lognormal", "gamma",
+             "weibull", "student_t"])
+        n_sim = c2.select_slider("Simulaciones", [10_000, 50_000, 100_000],
+                                 value=10_000)
+        with c3:
+            expense = st.number_input("Gastos", value=0.25, step=0.05)
+            margin = st.number_input("Margen de riesgo", value=0.10, step=0.05)
+
+        cov = Coverage(expected_yield=expected, guarantee=guarantee, price=price)
+        result = mc.simulate(det["detrended"], cov, distribution=distribution,
+                             n_sim=n_sim, expense_ratio=expense, risk_margin=margin)
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Pérdida esperada", f"{result['expected_loss_usd_ha']:,.2f} USD/ha")
+        c2.metric("Prob. de siniestro", f"{result['probability_of_loss']:.1%}")
+        c3.metric("VaR 99%", f"{result['var99']:,.0f} USD/ha")
+        c4.metric("Prima bruta", f"{result['gross_premium_usd_ha']:,.2f} USD/ha")
+
+        st.dataframe(mc.summary_table(result).style.format({"Valor": "{:,.4f}"}))
+
+        ind = result["indemnities"]
+        fig = px.histogram(x=ind[ind > 0], nbins=60,
+                           labels={"x": "Indemnización USD/ha"})
+        fig.update_layout(title="Distribución de pérdidas (siniestros > 0)",
+                          height=380)
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader(tr("Ajuste de distribuciones (AIC)"))
+        st.dataframe(fit_all(det["detrended"]).drop(columns="params"))
+
+
+elif page == "5️⃣ Pricing":
+    st.caption(tr("Paso 5 de 5 · del rinde al precio: prima pura por nivel de garantía"))
+
     st.title(tr("Pricing — Yield Shortfall"))
 
     c1, c2, c3 = st.columns(3)
@@ -729,74 +822,3 @@ elif page == "💰 Pricing":
     fig.update_layout(height=380)
     st.plotly_chart(fig, use_container_width=True)
 
-elif page == "🎲 Monte Carlo":
-    st.title(tr("Simulación Monte Carlo"))
-
-    c1, c2, c3 = st.columns(3)
-    _default_expected = (auto_result.expected_yield
-                         if auto_result is not None and auto_result.status == "OK"
-                         else det["trend"].iloc[-1])
-    expected = c1.number_input(tr("Rinde esperado (kg/ha)"),
-                               value=float(round(_default_expected, -1)),
-                               step=50.0)
-    guarantee = c2.slider("Garantía", 0.50, 0.90, 0.70, 0.05)
-    price = c3.number_input("Precio (USD/kg)", value=0.40, step=0.05)
-
-    c1, c2, c3 = st.columns(3)
-    distribution = c1.selectbox(
-        "Distribución",
-        ["empirical bootstrap", "kde", "normal", "lognormal", "gamma", "weibull"])
-    n_sim = c2.select_slider("Simulaciones", [10_000, 50_000, 100_000],
-                             value=10_000)
-    with c3:
-        expense = st.number_input("Gastos", value=0.25, step=0.05)
-        margin = st.number_input("Margen de riesgo", value=0.10, step=0.05)
-
-    cov = Coverage(expected_yield=expected, guarantee=guarantee, price=price)
-    result = mc.simulate(det["detrended"], cov, distribution=distribution,
-                         n_sim=n_sim, expense_ratio=expense, risk_margin=margin)
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Pérdida esperada", f"{result['expected_loss_usd_ha']:,.2f} USD/ha")
-    c2.metric("Prob. de siniestro", f"{result['probability_of_loss']:.1%}")
-    c3.metric("VaR 99%", f"{result['var99']:,.0f} USD/ha")
-    c4.metric("Prima bruta", f"{result['gross_premium_usd_ha']:,.2f} USD/ha")
-
-    st.dataframe(mc.summary_table(result).style.format({"Valor": "{:,.4f}"}))
-
-    ind = result["indemnities"]
-    fig = px.histogram(x=ind[ind > 0], nbins=60,
-                       labels={"x": "Indemnización USD/ha"})
-    fig.update_layout(title="Distribución de pérdidas (siniestros > 0)",
-                      height=380)
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.subheader(tr("Ajuste de distribuciones (AIC)"))
-    st.dataframe(fit_all(det["detrended"]).drop(columns="params"))
-
-elif page == "📦 Datos":
-    st.title(tr("Datos"))
-    st.write(f"**Fuente activa:** `{df.attrs.get('source', '—')}`")
-    st.write(f"{len(df):,} filas · cultivos: {', '.join(cultivos)}")
-
-    st.dataframe(serie, use_container_width=True)
-    st.download_button(tr("Descargar serie filtrada (CSV)"),
-                       serie.to_csv(index=False).encode(),
-                       file_name=f"{cultivo}_{depto}.csv")
-
-    st.divider()
-    st.subheader(tr("Actualizar desde MAGyP"))
-    st.caption("Descarga el dataset completo de Estimaciones Agrícolas "
-               "(datosestimaciones.magyp.gob.ar) y regenera el Parquet local. "
-               "En producción esto lo hace la GitHub Action mensual.")
-    if st.button(tr("Descargar dataset completo")):
-        from src.data import magyp
-        with st.spinner("Descargando Estimaciones.csv..."):
-            try:
-                csv_path = magyp.download_full_dataset()
-                full = magyp.load_dataset(csv_path)
-                magyp.to_parquet(database._normalize(full), database.PARQUET)
-                st.success(f"OK: {len(full):,} filas → {database.PARQUET}")
-                st.cache_data.clear()
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"Falló la descarga: {exc}")
