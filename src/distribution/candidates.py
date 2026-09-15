@@ -171,6 +171,10 @@ def build_candidate(name: str, mode: str, config, weights=None,
         return Parametric(name, positive_support=positive)
     if name == "empirical":
         return Empirical(positive)
+    if name in ("log_kernel", "weighted_log_kernel"):
+        from .kernel_engine import LogKernelCandidate
+        return LogKernelCandidate(name, weighted=name.startswith("weighted")
+                                  ).fit(x, weights)
     if name in ("kde", "weighted_kde"):
         weighted = name == "weighted_kde"
         # bandwidth por grilla × Silverman vía LOO-likelihood (spec §28)

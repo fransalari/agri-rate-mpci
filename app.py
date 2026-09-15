@@ -868,6 +868,60 @@ elif page == "4️⃣ Riesgo + Monte Carlo":
                                   yaxis_title="%")
                 st.plotly_chart(fig, use_container_width=True)
 
+        # ---------- Kernel Risk Model (§31, §36-37): distribución vs motor ----------
+        st.subheader("🧬 " + tr("Kernel Risk Model — misma distribución, tres motores numéricos"))
+        from src.distribution.kernel_engine import KernelRiskModel
+        _nhk = rk.normalized_history
+        _posk = _nhk[~_nhk["zero_event"]]
+        _kmod = KernelRiskModel.fit(
+            _posk["standardized_shock"].to_numpy(float),
+            years=_posk["year"].to_numpy(),
+            weights=_posk["historical_weight"].to_numpy(float),
+            weighted=True, p_zero=rk.zero_mass["p_zero"])
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Bandwidth (log)", f"{_kmod.bandwidth:.4f}",
+                  help=f"{_kmod.bandwidth_method} · ×{_kmod.bandwidth_factor} Silverman")
+        k2.metric(tr("Anclas históricas"), len(_kmod.anchors_shock))
+        _nodes = st.session_state.get("k_nodes", 20)
+        k3.metric(tr("Escenarios determinísticos"),
+                  len(_kmod.anchors_shock) * _nodes + (1 if _kmod.p_zero > 0 else 0))
+        k4.metric("N_eff", f"{_kmod.governance()['effective_sample']:.1f}")
+
+        _gk = 0.70
+        _det = _kmod.expected_loss_deterministic(_gk, _nodes)
+        _mck = _kmod.expected_loss_mc(_gk, 50_000, np.random.default_rng(1))
+        _ana = _kmod.expected_loss_integration(_gk)
+        st.markdown(tr("**Expected loss (garantía 70%) por motor** — misma distribución calibrada: ")
+                    + f"KERNEL_DETERMINISTIC **{_det['expected_loss']:.3%}** · "
+                    + f"KERNEL_MONTE_CARLO **{_mck['expected_loss']:.3%}** · "
+                    + f"KERNEL_INTEGRATION (analítica) **{_ana['expected_loss']:.3%}**")
+        st.caption(tr("El kernel ES la distribución; determinístico/MC/integración son solo formas de consumirla. Convergen porque no hay una segunda calibración. El determinístico no tiene ruido de muestreo y cada escenario es trazable a una campaña real."))
+
+        with st.expander("🔎 " + tr("Trazabilidad: ¿por qué existe cada escenario? (§35)")):
+            _sc = _kmod.deterministic_scenarios(_nodes)
+            _worst_anchor = _posk.loc[_posk["standardized_shock"].idxmin()]
+            _ay = st.selectbox(tr("Ancla histórica"),
+                               sorted(_posk["year"].astype(int)),
+                               index=int(np.argmin(_posk["standardized_shock"].to_numpy())))
+            _sub = _sc[_sc["historical_anchor_year"] == _ay]
+            _base_s = float(_sub["base_relative_shock"].iloc[0])
+            st.caption(tr("Campaña {y}: shock normalizado {b:.3f} → {n} escenarios vecinos vía bandwidth {h:.3f}. El extremo histórico sigue siendo un centro de masa de probabilidad — el suavizado no lo borra.",
+                          y=_ay, b=_base_s, n=len(_sub), h=_kmod.bandwidth))
+            _figs = go.Figure()
+            _figs.add_scatter(x=_sub["simulated_relative_shock"],
+                              y=_sub["weight"], mode="markers",
+                              marker=dict(size=7, color="#2C5F2D"),
+                              name=tr("escenarios kernel"))
+            _figs.add_vline(x=_base_s, line_color="#B85042",
+                            annotation_text=tr("shock observado"))
+            _figs.update_layout(height=280,
+                                xaxis_title=tr("shock relativo simulado"),
+                                yaxis_title=tr("peso de probabilidad"))
+            st.plotly_chart(_figs, use_container_width=True)
+            st.dataframe(_sub[["kernel_quantile", "perturbation",
+                               "simulated_relative_shock", "weight"]]
+                         .round(4), use_container_width=True, height=200)
+
         with st.expander(tr("Diagnósticos actuariales (advanced)")):
             st.write(f"**{tr('Ranking de distribuciones (score asegurador)')}**")
             st.dataframe(rk.ranking, use_container_width=True)
@@ -981,10 +1035,29 @@ elif page == "5️⃣ Pricing":
     freq_sim = float((lc_sim > 0).mean())
     sev_sim = float(lc_sim[lc_sim > 0].mean()) if (lc_sim > 0).any() else 0.0
 
+    # --- guardrail de experiencia (§24): opcional, default filosofía actual ---
+    _gmode = st.selectbox(
+        tr("Modo de tasa pura (guardrail de experiencia)"),
+        ["MODEL_ONLY", "MAX_MODEL_OBSERVED", "CREDIBILITY_BLEND",
+         "OBSERVED_ONLY"],
+        help=tr("Existe para que un modelo estadístico no borre experiencia observada creíble — no como conservadurismo arbitrario. MODEL_ONLY es el default de la app."))
+    if _gmode == "MAX_MODEL_OBSERVED":
+        tasa_pura = max(tasa_sim, tasa_obs)
+    elif _gmode == "OBSERVED_ONLY":
+        tasa_pura = tasa_obs
+    elif _gmode == "CREDIBILITY_BLEND":
+        _z = st.slider("Z (credibilidad del observado)", 0.0, 1.0, 0.3, 0.05)
+        tasa_pura = _z * tasa_obs + (1 - _z) * tasa_sim
+    else:
+        tasa_pura = tasa_sim
+    if _gmode != "MODEL_ONLY":
+        st.caption(tr("Guardrail activo: tasa pura = {m} → {t:.2%} (modelo {a:.2%} · observado {b:.2%})",
+                      m=_gmode, t=tasa_pura, a=tasa_sim, b=tasa_obs))
+
     # --- 3) tasa técnica ---
     loading = 1.0 - deductions_p - margin_p
-    tasa_tec = tasa_sim / max(loading, 1e-9)
-    st.session_state["live_rate"] = tasa_sim
+    tasa_tec = tasa_pura / max(loading, 1e-9)
+    st.session_state["live_rate"] = tasa_pura
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(tr("Tasa pura observada"), f"{tasa_obs:.2%}",
@@ -996,7 +1069,7 @@ elif page == "5️⃣ Pricing":
                       p=rk.zero_mass["p_zero"]))
     c3.metric(tr("Tasa técnica"), f"{tasa_tec:.2%}",
               help=tr("pura simulada / (1 − deductions − margin) = {t:.2%} / {l:.2f}",
-                      t=tasa_sim, l=loading))
+                      t=tasa_pura, l=loading))
     c4.metric(tr("Prima técnica"), f"{tasa_tec*sa:,.2f} USD/ha",
               help=tr("SA = garantía × precio = {sa:,.0f} USD/ha", sa=sa))
 

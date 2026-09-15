@@ -281,6 +281,31 @@ EN = {
     "Tu cobertura del {c:.0%} garantiza {g:,.0f} kg/ha. Bajo la distribución seleccionada ({d}), el {p:.0%} de las campañas simuladas cae por debajo de esa garantía; cuando hay siniestro, el faltante promedio es {s:,.0f} kg/ha ({sev:.0%} de la garantía). En {n:,} campañas simuladas eso produce una indemnización esperada del {t:.2%} de la responsabilidad — la tasa pura. El bootstrap indica un rango plausible de {lo:.2%}–{hi:.2%}, reflejo de la historia limitada; y entre metodologías defendibles la tasa va de {mn:.2%} a {mx:.2%}. La mayor fuente de sensibilidad es la representación de la cola inferior.":
         "Your {c:.0%} coverage guarantees {g:,.0f} kg/ha. Under the selected distribution ({d}), {p:.0%} of simulated seasons fall below that guarantee; when a claim occurs, the average shortfall is {s:,.0f} kg/ha ({sev:.0%} of the guarantee). Across {n:,} simulated seasons this produces an expected indemnity of {t:.2%} of liability — the pure rate. Bootstrap indicates a plausible range of {lo:.2%}–{hi:.2%}, reflecting limited history; and across defensible methodologies the rate spans {mn:.2%} to {mx:.2%}. The largest source of sensitivity is the representation of the lower tail.",
 
+
+    # --- kernel engine ---
+    "Kernel Risk Model — misma distribución, tres motores numéricos":
+        "Kernel Risk Model — one distribution, three numerical engines",
+    "Anclas históricas": "Historical anchors",
+    "Escenarios determinísticos": "Deterministic scenarios",
+    "**Expected loss (garantía 70%) por motor** — misma distribución calibrada: ":
+        "**Expected loss (70% guarantee) by engine** — same calibrated distribution: ",
+    "El kernel ES la distribución; determinístico/MC/integración son solo formas de consumirla. Convergen porque no hay una segunda calibración. El determinístico no tiene ruido de muestreo y cada escenario es trazable a una campaña real.":
+        "The kernel IS the distribution; deterministic/MC/integration are just ways of consuming it. They converge because there is no second calibration. The deterministic engine has no sampling noise and every scenario traces back to a real season.",
+    "Trazabilidad: ¿por qué existe cada escenario? (§35)":
+        "Traceability: why does each scenario exist? (§35)",
+    "Ancla histórica": "Historical anchor",
+    "Campaña {y}: shock normalizado {b:.3f} → {n} escenarios vecinos vía bandwidth {h:.3f}. El extremo histórico sigue siendo un centro de masa de probabilidad — el suavizado no lo borra.":
+        "Season {y}: normalized shock {b:.3f} → {n} neighboring scenarios via bandwidth {h:.3f}. The historical extreme remains a center of probability mass — smoothing does not erase it.",
+    "escenarios kernel": "kernel scenarios", "shock observado": "observed shock",
+    "shock relativo simulado": "simulated relative shock",
+    "peso de probabilidad": "probability weight",
+    "Modo de tasa pura (guardrail de experiencia)":
+        "Pure-rate mode (experience guardrail)",
+    "Existe para que un modelo estadístico no borre experiencia observada creíble — no como conservadurismo arbitrario. MODEL_ONLY es el default de la app.":
+        "It exists so a statistical model cannot erase credible observed loss experience — not as arbitrary conservatism. MODEL_ONLY is the app default.",
+    "Guardrail activo: tasa pura = {m} → {t:.2%} (modelo {a:.2%} · observado {b:.2%})":
+        "Guardrail active: pure rate = {m} → {t:.2%} (model {a:.2%} · observed {b:.2%})",
+
     # --- otras páginas ---
     "Análisis de rindes": "Yield analysis",
     "Estadística descriptiva": "Descriptive statistics",

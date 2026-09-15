@@ -87,7 +87,8 @@ class RiskDistributionConfig:
         son positivos (soporte [0,∞)); en aditivo pueden ser negativos."""
         if mode == "multiplicative":
             base = ("lognormal", "gamma", "weibull", "normal", "student_t",
-                    "empirical", "kde", "weighted_kde")
+                    "empirical", "kde", "weighted_kde",
+                    "log_kernel", "weighted_log_kernel")
         else:
             base = ("normal", "student_t", "empirical", "kde", "weighted_kde")
         if self.execution_mode == "FAST":
@@ -97,4 +98,6 @@ class RiskDistributionConfig:
     # complejidad relativa (§23, peso 0.05): parámetros efectivos / 10
     DIST_COMPLEXITY = {"normal": 0.2, "lognormal": 0.2, "gamma": 0.2,
                        "weibull": 0.2, "student_t": 0.3, "empirical": 0.4,
-                       "kde": 0.5, "weighted_kde": 0.6, "ensemble": 0.7}
+                       "kde": 0.5, "weighted_kde": 0.6,
+                       "log_kernel": 0.5, "weighted_log_kernel": 0.6,
+                       "ensemble": 0.7}
