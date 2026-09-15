@@ -209,6 +209,78 @@ EN = {
         "Where the curves separate is where the model adds value: at low guarantees the tail (and zeros) dominate; at high guarantees both converge because mild claims are well represented in the sample.",
     "Loss cost por campaña (observado)": "Loss cost by season (observed)",
 
+
+    # --- pricing lab ---
+    "Modo": "Mode", "Guiado": "Guided", "Experto": "Expert",
+    "Guiado agrega la capa educativa (conceptos, fórmulas, experimentos). Experto la oculta. El cálculo es EXACTAMENTE el mismo.":
+        "Guided adds the educational layer (concepts, formulas, experiments). Expert hides it. The calculation is EXACTLY the same.",
+    "Datos": "Data", "Trend": "Trend", "Distribución": "Distribution",
+    "Garantía": "Guarantee", "Cola": "Tail", "Simulación": "Simulation",
+    "Loss Cost": "Loss Cost", "Incertidumbre": "Uncertainty", "Tasa": "Rate",
+    "tasa pura actual": "current pure rate",
+    "Concepto": "Concept", "Por qué importa": "Why it matters",
+    "Impacto en la tasa": "Impact on rate",
+    "Advertencia actuarial": "Actuarial warning", "Glosario": "Glossary",
+    "Garantía propuesta (para diagnóstico de credibilidad)":
+        "Proposed guarantee (for credibility diagnostics)",
+    "Campañas totales": "Total seasons",
+    "Campañas en la cola asegurada": "Seasons in the insured tail",
+    "Rindes cero": "Zero yields",
+    "Rindes por debajo de garantía×mediana. Solo estas observaciones informan directamente el precio del seguro.":
+        "Yields below guarantee×median. Only these observations directly inform the insurance price.",
+    "**CREDIBILIDAD BAJA en la cola**: con {n} observaciones bajo la garantía, un promedio estable NO implica una cola estable. La prima descansa en muy pocos años.":
+        "**LOW TAIL CREDIBILITY**: with {n} observations below the guarantee, a stable average does NOT imply a stable tail. The premium rests on very few years.",
+    "garantía propuesta": "proposed guarantee",
+    "Los años EXTREMOS no son outliers a limpiar: pueden ser la razón principal por la que existe este seguro.":
+        "EXTREME years are not outliers to clean: they may be the main reason this insurance exists.",
+    "GARANTÍA 70%": "70% GUARANTEE", "región asegurada": "insured region",
+    "Experimento: bandwidth del kernel (no afecta la tarifa)":
+        "Experiment: kernel bandwidth (does not affect the rate)",
+    "SUB-SUAVIZADO ← bandwidth → SOBRE-SUAVIZADO · La tarifa real usa el bandwidth elegido estadísticamente (LOO-likelihood); este slider es para VER por qué no es una perilla cosmética.":
+        "UNDER-SMOOTHED ← bandwidth → OVER-SMOOTHED · The actual rate uses the statistically selected bandwidth (LOO-likelihood); this slider is to SEE why it is not a cosmetic knob.",
+    "Prima pura (garantía 70%)": "Pure premium (70% guarantee)",
+    "shocks históricos": "historical shocks",
+    "Descomposición: frecuencia × severidad": "Decomposition: frequency × severity",
+    "Experimento mental: si la cobertura sube de 70% a 80%, ¿qué esperás de la tasa pura?":
+        "Thought experiment: if coverage rises from 70% to 80%, what do you expect from the pure rate?",
+    "Baja": "It falls", "Queda parecida": "About the same",
+    "Sube más que proporcionalmente": "It rises more than proportionally",
+    "Con esta serie: 70% → {a:.2%} · 80% → {b:.2%} ({x:.1f}×). Sube MÁS que proporcionalmente: al subir la garantía entran a la región asegurada los años moderadamente malos, que son muchos más que los extremos.":
+        "With this series: 70% → {a:.2%} · 80% → {b:.2%} ({x:.1f}×). It rises MORE than proportionally: raising the guarantee pulls moderately bad years into the insured region, and there are many more of those than extremes.",
+    "Incertidumbre de la tasa": "Rate uncertainty",
+    "El modelo estima el riesgo; no observa el riesgo verdadero.":
+        "The model estimates the risk; it does not observe the true risk.",
+    "Intervalo bootstrap 90%": "Bootstrap 90% interval",
+    "re-muestreos de la historia, re-ajustando la distribución seleccionada":
+        "resamples of history, re-fitting the selected distribution",
+    "Estabilidad leave-one-year-out": "Leave-one-year-out stability",
+    "campaña quitada": "season removed",
+    "tasa sin esa campaña": "rate without that season",
+    "base {b:.2%}": "base {b:.2%}",
+    "Rango: {mn:.2%} – {mx:.2%} · campaña más influyente: {y} ({d:+.2%})":
+        "Range: {mn:.2%} – {mx:.2%} · most influential season: {y} ({d:+.2%})",
+    "Model risk: la tasa según cada metodología": "Model risk: the rate under each methodology",
+    "min {mn:.2%} · mediana {md:.2%} · max {mx:.2%} — esta dispersión es MODEL RISK: distinta del riesgo de datos (bootstrap) y del de proceso.":
+        "min {mn:.2%} · median {md:.2%} · max {mx:.2%} — this spread is MODEL RISK: distinct from data risk (bootstrap) and process risk.",
+    "Controles de sanidad actuarial": "Actuarial sanity checks",
+    "una cobertura mayor debería costar más": "higher coverage should cost more",
+    "{n} de {t} campañas por debajo de la garantía — solo esas informan directamente el precio":
+        "{n} of {t} seasons below the guarantee — only those directly inform the price",
+    "quitar {y} mueve la tasa {d:+.2%} ({r:.0%} de la base)":
+        "removing {y} moves the rate {d:+.2%} ({r:.0%} of base)",
+    "{n} candidato(s) rechazados por comprimir la cola — el seleccionado los pasó":
+        "{n} candidate(s) rejected for compressing the tail — the selected one passed",
+    "Monotonicidad: tasa crece con la cobertura": "Monotonicity: rate grows with coverage",
+    "Sin rindes simulados negativos": "No negative simulated yields",
+    "Observaciones en la cola asegurada": "Observations in the insured tail",
+    "¿Domina la prima una sola campaña?": "Does a single season dominate the premium?",
+    "Gates de subdispersión de riesgo": "Risk underdispersion gates",
+    "Tamaño de muestra efectivo": "Effective sample size",
+    "Ver fórmulas con los valores reales": "Show formulas with actual values",
+    "La historia de tu tasa": "Your rate story",
+    "Tu cobertura del {c:.0%} garantiza {g:,.0f} kg/ha. Bajo la distribución seleccionada ({d}), el {p:.0%} de las campañas simuladas cae por debajo de esa garantía; cuando hay siniestro, el faltante promedio es {s:,.0f} kg/ha ({sev:.0%} de la garantía). En {n:,} campañas simuladas eso produce una indemnización esperada del {t:.2%} de la responsabilidad — la tasa pura. El bootstrap indica un rango plausible de {lo:.2%}–{hi:.2%}, reflejo de la historia limitada; y entre metodologías defendibles la tasa va de {mn:.2%} a {mx:.2%}. La mayor fuente de sensibilidad es la representación de la cola inferior.":
+        "Your {c:.0%} coverage guarantees {g:,.0f} kg/ha. Under the selected distribution ({d}), {p:.0%} of simulated seasons fall below that guarantee; when a claim occurs, the average shortfall is {s:,.0f} kg/ha ({sev:.0%} of the guarantee). Across {n:,} simulated seasons this produces an expected indemnity of {t:.2%} of liability — the pure rate. Bootstrap indicates a plausible range of {lo:.2%}–{hi:.2%}, reflecting limited history; and across defensible methodologies the rate spans {mn:.2%} to {mx:.2%}. The largest source of sensitivity is the representation of the lower tail.",
+
     # --- otras páginas ---
     "Análisis de rindes": "Yield analysis",
     "Estadística descriptiva": "Descriptive statistics",
