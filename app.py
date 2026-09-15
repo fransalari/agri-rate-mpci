@@ -124,13 +124,14 @@ if serie.empty:
 # ---------------------------------------------------------------- pages
 
 @st.cache_resource(show_spinner=False)
-def compute_portfolio(cultivo: str, provincia: str, min_years: int,
-                      trigger_mode: str, trigger_value: float,
+def compute_portfolio(cultivo: str, provincia: str, desde: int, hasta: int,
+                      min_years: int, trigger_mode: str, trigger_value: float,
                       sa_ha: float, deductions: float, margin: float,
                       loss_cap, return_period: int, n_rows: int):
     """Corre el motor (FAST) + tarificación por departamento y consolida."""
     data = get_data()
-    dfc = data[(data["cultivo"] == cultivo) & (data["provincia"] == provincia)]
+    dfc = data[(data["cultivo"] == cultivo) & (data["provincia"] == provincia)
+               & (data["anio"] >= desde) & (data["anio"] <= hasta)]
     params = pf.PortfolioParams(
         trigger_mode=trigger_mode, trigger_value=trigger_value,
         sum_insured_ha=sa_ha, deductions=deductions, mr_margin=margin,
@@ -169,6 +170,10 @@ if page == "📊 Resultados":
     st.caption("Tarifación técnica propia (modelo area-yield sobre serie "
                "normalizada) · escenario CAT · peor año histórico · loss cap")
 
+    st.caption(f"**Del panel lateral aplican:** cultivo (**{cultivo}**) y "
+               f"período (**{desde}–{hasta}**). El departamento del panel "
+               "no aplica acá: se consolidan todos los elegibles de la "
+               "provincia seleccionada.")
     data = get_data()
     provincias = sorted(data.loc[data["cultivo"] == cultivo, "provincia"].unique())
     _prov_default = data.loc[(data["cultivo"] == cultivo)
@@ -206,7 +211,8 @@ if page == "📊 Resultados":
         loss_cap = cap_pct / 100.0 if cap_on else None
         tm = "pct" if trigger_mode_lbl.startswith("%") else "fixed"
         st.session_state["pf_result"] = compute_portfolio(
-            cultivo, provincia, int(min_years), tm, float(trigger_value),
+            cultivo, provincia, int(desde), int(hasta),
+            int(min_years), tm, float(trigger_value),
             float(sa_ha), float(deductions), float(margin), loss_cap,
             int(ret_period), len(data))
     cons, skipped, params = st.session_state["pf_result"]
@@ -219,6 +225,8 @@ if page == "📊 Resultados":
     cap_active = params.loss_cap is not None
 
     st.subheader("Totales de cartera")
+    st.caption(f"Serie utilizada: campañas {desde}–{hasta} · triggers sobre "
+               "E[rinde] estimado con esa ventana.")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Prima técnica total", f"${cons['prima_tecnica']:,.0f}",
               delta=(f"{cons['prima_tecnica']-cons['prima_tecnica_nocap']:+,.0f} vs sin cap"
@@ -233,14 +241,17 @@ if page == "📊 Resultados":
               f"${cons['perdida_cat']:,.0f}",
               delta=(f"{cons['perdida_cat']-cons['perdida_cat_nocap']:+,.0f} vs sin cap"
                      if cap_active else None), delta_color="inverse")
-    c2.metric("PML (× prima técnica)", f"{cons['pml_x']:.1f}x",
-              delta=(f"{cons['pml_x']-cons['pml_x_nocap']:+.1f}x vs sin cap"
-                     if cap_active else None), delta_color="inverse")
+    c2.metric("Siniestralidad CAT (siniestros/prima)",
+              f"{cons['pml_x']:.0%}",
+              delta=(f"{cons['pml_x']-cons['pml_x_nocap']:+.0%} vs sin cap"
+                     if cap_active else None), delta_color="inverse",
+              help=f"equivale a PML {cons['pml_x']:.1f}× la prima técnica")
     if cons["worst_year"]:
         c3.metric(f"Peor año histórico ({cons['worst_year']})",
                   f"${cons['worst_loss']:,.0f}")
-        c4.metric(f"{cons['worst_year']} (× prima técnica)",
-                  f"{cons['worst_x']:.1f}x")
+        c4.metric(f"Siniestralidad {cons['worst_year']}",
+                  f"{cons['worst_x']:.0%}",
+                  help=f"equivale a {cons['worst_x']:.1f}× la prima técnica")
 
     if cap_active:
         st.success(
@@ -251,7 +262,7 @@ if page == "📊 Resultados":
             f"pérdida CAT ${cons['perdida_cat_nocap']:,.0f} → "
             f"${cons['perdida_cat']:,.0f} "
             f"({cons['perdida_cat']/max(cons['perdida_cat_nocap'],1)-1:+.1%}) · "
-            f"PML {cons['pml_x_nocap']:.1f}x → {cons['pml_x']:.1f}x. "
+            f"siniestralidad CAT {cons['pml_x_nocap']:.0%} → {cons['pml_x']:.0%}. "
             "El cap recorta la cola (CAT/PML) mucho más que la prima: "
             "es capacidad de reaseguro implícita.")
 
@@ -268,7 +279,7 @@ if page == "📊 Resultados":
         "Prima técnica USD": t["prima_tecnica"].round(0),
         f"LC CAT {params.return_period}a %": (t["lc_cat"] * 100).round(1),
         "Pérdida CAT USD": t["perdida_cat"].round(0),
-        "PML x prima": (t["perdida_cat"] / t["prima_tecnica"].clip(lower=1)).round(1),
+        "LR CAT %": (t["perdida_cat"] / t["prima_tecnica"].clip(lower=1) * 100).round(0),
         "Campañas": t["n_years"],
     })
     if cap_active:
@@ -278,7 +289,7 @@ if page == "📊 Resultados":
            "Tasa técnica": round(cons["tasa_media"] * 100, 2),
            "Prima técnica USD": show["Prima técnica USD"].sum(),
            "Pérdida CAT USD": show["Pérdida CAT USD"].sum(),
-           "PML x prima": round(cons["pml_x"], 1)}
+           "LR CAT %": round(cons["pml_x"] * 100)}
     show = pd.concat([show, pd.DataFrame([tot])], ignore_index=True)
     st.dataframe(show, use_container_width=True, height=560)
     st.download_button("⬇ Descargar CSV", show.to_csv(index=False).encode(),
@@ -293,23 +304,61 @@ if page == "📊 Resultados":
         fig.update_layout(height=480)
         st.plotly_chart(fig, use_container_width=True)
     with c2:
-        py = cons["per_year"]
-        fig = px.bar(py, x="year", y="loss",
-                     title="Pérdida histórica agregada por campaña (USD, a valores actuales)",
-                     labels={"year": "Campaña", "loss": "USD"})
+        unidad = st.radio("Unidad del gráfico histórico",
+                          ["% Loss Ratio (siniestros/prima)", "USD"],
+                          horizontal=True, label_visibility="collapsed")
+        py = cons["per_year"].copy()
+        prima = max(cons["prima_tecnica"], 1e-9)
+        prima_nocap = max(cons["prima_tecnica_nocap"], 1e-9)
+        as_lr = unidad.startswith("%")
+        if as_lr:
+            py["v"] = py["loss"] / prima * 100
+            py["v_nocap"] = py["loss_nocap"] / prima_nocap * 100
+            ylab, tit = "% de la prima técnica", "Siniestralidad histórica por campaña (a valores actuales)"
+        else:
+            py["v"] = py["loss"]
+            py["v_nocap"] = py["loss_nocap"]
+            ylab, tit = "USD", "Pérdida histórica agregada por campaña (USD, a valores actuales)"
+        if cap_active:
+            fig = go.Figure()
+            fig.add_bar(x=py["year"], y=py["v_nocap"], name="sin cap",
+                        marker_color="#bcd3ae")
+            fig.add_bar(x=py["year"], y=py["v"],
+                        name=f"con cap {params.loss_cap:.0%}",
+                        marker_color="#2e7d32")
+            fig.update_layout(barmode="overlay", title=tit,
+                              xaxis_title="Campaña", yaxis_title=ylab,
+                              legend=dict(orientation="h", y=1.08))
+        else:
+            fig = px.bar(py, x="year", y="v", title=tit,
+                         labels={"year": "Campaña", "v": ylab})
+        if as_lr:
+            fig.add_hline(y=100, line_dash="dot", line_color="#B85042",
+                          annotation_text="LR 100% (siniestros = prima)")
         if cons["worst_year"]:
-            fig.add_annotation(x=cons["worst_year"], y=cons["worst_loss"],
+            wv = (cons["worst_loss"] / prima * 100) if as_lr else cons["worst_loss"]
+            fig.add_annotation(x=cons["worst_year"], y=wv,
                                text=f"peor año: {cons['worst_year']}",
                                showarrow=True, arrowhead=2)
         fig.update_layout(height=480)
         st.plotly_chart(fig, use_container_width=True)
+        share = (py["sa"] / max(cons["sa_total"], 1e-9)).clip(lower=1e-9)
+        lr_media = float((py["loss"] / (prima * share)).mean())
+        st.caption(f"Siniestralidad media histórica (base cartera reportante "
+                   f"en cada campaña): {lr_media:.0%} de la prima técnica — "
+                   f"teórico ≈ {1-params.deductions-params.mr_margin:.0%} por "
+                   "construcción del recargo; difiere por mezcla de "
+                   "departamentos/campañas.")
 
     if cons["worst_detail"] is not None:
         with st.expander(f"Detalle del peor año ({cons['worst_year']})"):
             wd = cons["worst_detail"].copy()
+            primas = t.set_index("departamento")["prima_tecnica"]
+            wd["lr"] = (wd["loss"] / wd["departamento"].map(primas).clip(lower=1) * 100).round(0)
             wd["lc"] = (wd["lc"] * 100).round(1)
             wd["loss"] = wd["loss"].round(0)
-            wd.columns = ["Departamento", "LC %", "Pérdida USD"]
+            wd = wd[["departamento", "lc", "loss", "lr"]]
+            wd.columns = ["Departamento", "LC %", "Pérdida USD", "LR % (vs prima depto)"]
             st.dataframe(wd, use_container_width=True)
     if skipped:
         with st.expander(f"Departamentos excluidos ({len(skipped)})"):
