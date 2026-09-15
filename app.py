@@ -143,8 +143,15 @@ if serie.empty:
 def compute_portfolio(cultivo: str, provincia: str, desde: int, hasta: int,
                       min_years: int, trigger_mode: str, trigger_value: float,
                       sa_ha: float, deductions: float, margin: float,
-                      loss_cap, return_period: int, n_rows: int):
-    """Corre el motor (FAST) + tarificación por departamento y consolida."""
+                      loss_cap, return_period: int, uniform: bool, n_rows: int):
+    """Motor (FAST) + tarificación por departamento y consolidación.
+
+    uniform=True → metodología uniforme de cartera: metodología MODAL
+    (modelo de trend + modo) entre las recomendaciones AUTO de la
+    provincia, re-estimada con grilla restringida en los deptos que
+    diferían. Parámetros (start year, half-life) siguen siendo locales.
+    """
+    from collections import Counter
     data = get_data()
     dfc = data[(data["cultivo"] == cultivo) & (data["provincia"] == provincia)
                & (data["anio"] >= desde) & (data["anio"] <= hasta)]
@@ -155,15 +162,19 @@ def compute_portfolio(cultivo: str, provincia: str, desde: int, hasta: int,
     counts = (dfc.dropna(subset=["rendimiento_kgxha"])
               .groupby("departamento")["anio"].nunique())
     deptos = sorted(counts[counts >= min_years].index)
-    results, skipped = [], []
+    skipped, autos = [], {}
     prog = st.progress(0.0, text="Ejecutando motor por departamento...")
     eng = YieldNormalizationEngine(YieldNormalizationConfig(execution_mode="FAST"))
+
+    def _serie(d):
+        return (dfc[dfc["departamento"] == d]
+                .dropna(subset=["rendimiento_kgxha"])
+                .sort_values("anio").reset_index(drop=True))
+
     for i, d in enumerate(deptos):
         prog.progress((i + 1) / max(len(deptos), 1),
                       text=f"Normalizando {d} ({i+1}/{len(deptos)})")
-        serie_d = (dfc[dfc["departamento"] == d]
-                   .dropna(subset=["rendimiento_kgxha"])
-                   .sort_values("anio").reset_index(drop=True))
+        serie_d = _serie(d)
         try:
             res = eng.run(serie_d, crop=cultivo, location=d,
                           target_year=int(serie_d["anio"].max()) + 1)
@@ -171,14 +182,50 @@ def compute_portfolio(cultivo: str, provincia: str, desde: int, hasta: int,
             skipped.append((d, f"motor: {exc}")); continue
         if res.status != "OK":
             skipped.append((d, res.status)); continue
-        sup = pf.superficie_estimada(dfc, d)
-        if sup <= 0:
+        if pf.superficie_estimada(dfc, d) <= 0:
             skipped.append((d, "sin superficie reciente")); continue
-        results.append(pf.department_result(
-            d, res.normalized_history, res.expected_yield, sup, params))
+        autos[d] = res
+
+    def _consolidate(res_map):
+        rows = []
+        for d, r in res_map.items():
+            dr = pf.department_result(d, r.normalized_history,
+                                      r.expected_yield,
+                                      pf.superficie_estimada(dfc, d), params)
+            dr["modelo"] = (f"{r.recommended.trend_model} · "
+                            f"{r.recommended.detrending_mode[:4]}")
+            rows.append(dr)
+        return pf.consolidate(rows, params) if rows else None
+
+    cons_auto = _consolidate(autos)
+    cons_uni, modal, changed = None, None, []
+    if uniform and autos:
+        combos = Counter((r.recommended.trend_model,
+                          r.recommended.detrending_mode)
+                         for r in autos.values())
+        modal = combos.most_common(1)[0][0]
+        cfg_u = YieldNormalizationConfig(
+            execution_mode="FAST", candidate_models=(modal[0],),
+            candidate_detrending_modes=(modal[1],))
+        eng_u = YieldNormalizationEngine(cfg_u)
+        unis = dict(autos)
+        diff = [d for d, r in autos.items()
+                if (r.recommended.trend_model,
+                    r.recommended.detrending_mode) != modal]
+        for i, d in enumerate(diff):
+            prog.progress((i + 1) / max(len(diff), 1),
+                          text=f"Re-estimando con metodología uniforme: {d}")
+            try:
+                r_u = eng_u.run(_serie(d), crop=cultivo, location=d,
+                                target_year=int(_serie(d)["anio"].max()) + 1)
+                if r_u.status == "OK":
+                    unis[d] = r_u
+                    changed.append(d)
+            except Exception:
+                pass
+        cons_uni = _consolidate(unis)
     prog.empty()
-    cons = pf.consolidate(results, params) if results else None
-    return cons, skipped, params
+    return cons_auto, cons_uni, modal, changed, skipped, params
 
 
 if page == "📊 Resultados — cartera":
@@ -210,6 +257,9 @@ if page == "📊 Resultados — cartera":
         margin = c3.number_input("MR Margin", 0.0, 0.5, 0.10, step=0.01)
         ret_period = c4.selectbox(tr("Período de retorno CAT"), [50, 100, 200, 250], index=1)
         c1, c2 = st.columns([1, 3])
+        uniform = c1.checkbox(
+            tr("Metodología uniforme de cartera"),
+            help=tr("Aplica la metodología modal de la provincia (modelo de trend + modo) a todos los departamentos, re-estimando parámetros localmente. Compara la prima contra AUTO por departamento."))
         cap_on = c1.checkbox(tr("Aplicar LOSS CAP"))
         cap_pct = c2.slider(tr("Loss cap (% de la suma asegurada)"), 10, 100, 50,
                             disabled=not cap_on)
@@ -221,12 +271,12 @@ if page == "📊 Resultados — cartera":
     if run:
         loss_cap = cap_pct / 100.0 if cap_on else None
         tm = "pct" if trigger_mode_lbl.startswith("%") else "fixed"
-        st.session_state["pf_result"] = compute_portfolio(
+        st.session_state["pf_result2"] = compute_portfolio(
             cultivo, provincia, int(desde), int(hasta),
             int(min_years), tm, float(trigger_value),
             float(sa_ha), float(deductions), float(margin), loss_cap,
-            int(ret_period), len(data))
-    cons, skipped, params = st.session_state["pf_result"]
+            int(ret_period), bool(uniform), len(data))
+    cons, cons_uni, modal_meth, changed_deptos, skipped, params = st.session_state["pf_result2"]
 
     if cons is None:
         st.warning(tr("Ningún departamento elegible con esos filtros."))
@@ -276,6 +326,27 @@ if page == "📊 Resultados — cartera":
             "El cap recorta la cola (CAT/PML) mucho más que la prima: "
             "es capacidad de reaseguro implícita.")
 
+    if cons_uni is not None and modal_meth is not None:
+        st.subheader(tr("Metodología uniforme vs AUTO por departamento"))
+        st.caption(tr("Metodología modal aplicada a toda la provincia: **{m}** · departamentos re-estimados: {n} ({lst})",
+                      m=f"{modal_meth[0]} · {modal_meth[1]}",
+                      n=len(changed_deptos),
+                      lst=", ".join(changed_deptos) if changed_deptos else "—"))
+        u1, u2, u3 = st.columns(3)
+        u1.metric(tr("Prima técnica (uniforme)"),
+                  f"${cons_uni['prima_tecnica']:,.0f}",
+                  delta=f"{cons_uni['prima_tecnica']-cons['prima_tecnica']:+,.0f} vs AUTO",
+                  delta_color="off")
+        u2.metric(tr("Pérdida CAT (uniforme)"),
+                  f"${cons_uni['perdida_cat']:,.0f}",
+                  delta=f"{cons_uni['perdida_cat']-cons['perdida_cat']:+,.0f} vs AUTO",
+                  delta_color="off")
+        u3.metric(tr("Tasa técnica media (uniforme)"),
+                  f"{cons_uni['tasa_media']:.2%}",
+                  delta=f"{cons_uni['tasa_media']-cons['tasa_media']:+.2%} vs AUTO",
+                  delta_color="off")
+        st.caption(tr("AUTO sigue siendo la referencia (respeta trends locales con evidencia fuerte); la uniforme sirve como sensibilidad de governance y para discutir con reaseguro."))
+
     st.subheader(tr("Detalle por departamento"))
     show = pd.DataFrame({
         "Departamento": t["departamento"],
@@ -286,6 +357,7 @@ if page == "📊 Resultados — cartera":
         "SA total USD": t["sa_total"].round(0),
         "Tasa pura": (t["pure_rate"] * 100).round(2),
         "Tasa técnica": (t["tech_rate"] * 100).round(2),
+        "Modelo": t.get("modelo", ""),
         "Prima técnica USD": t["prima_tecnica"].round(0),
         f"LC CAT {params.return_period}a %": (t["lc_cat"] * 100).round(1),
         "Pérdida CAT USD": t["perdida_cat"].round(0),
@@ -784,41 +856,108 @@ elif page == "5️⃣ Pricing":
     st.caption(tr("Paso 5 de 5 · del rinde al precio: prima pura por nivel de garantía"))
 
     st.title(tr("Pricing — Yield Shortfall"))
+    st.caption(tr("Construcción de tasa transparente: qué aporta cada fuente (histórico observado → modelo simulado → recargos) y por qué."))
+
+    rk = run_risk_engine(cultivo, depto, desde, hasta, "DEPARTMENT", "FAST",
+                         len(serie))
+    if rk.status != "OK":
+        st.warning(tr("INSUFFICIENT_DATA: la serie no alcanza para modelar sin inventar precisión."))
+        st.stop()
+    mu = float(rk.trend["target_yield"])
 
     c1, c2, c3 = st.columns(3)
-    _default_expected = (auto_result.expected_yield
-                         if auto_result is not None and auto_result.status == "OK"
-                         else det["trend"].iloc[-1])
     expected = c1.number_input(tr("Rinde esperado (kg/ha)"),
-                               value=float(round(_default_expected, -1)),
-                               step=50.0)
+                               value=float(round(mu, -1)), step=50.0,
+                               help=tr("Default: E[rinde] del motor. Si lo cambiás, las simulaciones se re-escalan proporcionalmente."))
     guarantee = c2.slider("Garantía", 0.50, 0.90, 0.70, 0.05)
     price = c3.number_input("Precio (USD/kg)", value=0.40, step=0.05)
+    c1, c2 = st.columns(2)
+    deductions_p = c1.number_input(tr("Deductions"), value=0.25, step=0.05)
+    margin_p = c2.number_input(tr("MR Margin"), value=0.10, step=0.05)
 
-    cov = Coverage(expected_yield=expected, guarantee=guarantee, price=price)
-    res = bc.burning_cost(det["detrended"], cov)
+    g_kg = guarantee * expected
+    sa = g_kg * price
+
+    # --- 1) tasa pura observada (burning cost sobre serie normalizada) ---
+    nh = rk.normalized_history
+    y_hist = nh["normalized_yield"].to_numpy(float) * (expected / mu)
+    lc_hist = np.maximum(g_kg - y_hist, 0.0) / g_kg
+    tasa_obs = float(lc_hist.mean())
+    freq_obs = float((lc_hist > 0).mean())
+
+    # --- 2) tasa pura simulada (motor: distribución + ceros + cola) ---
+    sims = rk.simulated_yields * (expected / mu)
+    lc_sim = np.maximum(g_kg - sims, 0.0) / g_kg
+    tasa_sim = float(lc_sim.mean())
+    freq_sim = float((lc_sim > 0).mean())
+    sev_sim = float(lc_sim[lc_sim > 0].mean()) if (lc_sim > 0).any() else 0.0
+
+    # --- 3) tasa técnica ---
+    loading = 1.0 - deductions_p - margin_p
+    tasa_tec = tasa_sim / max(loading, 1e-9)
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Burning Cost", f"{res['burning_cost']:.2%}")
-    c2.metric("Prima pura", f"{res['pure_premium_usd_ha']:,.2f} USD/ha")
-    c3.metric("Frecuencia", f"{res['frequency']:.1%}")
-    c4.metric("Severidad", f"{res['severity']:.1%}")
+    c1.metric(tr("Tasa pura observada"), f"{tasa_obs:.2%}",
+              help=tr("Burning cost histórico: promedio del loss cost sobre la serie normalizada por el motor ({n} campañas). Es lo que efectivamente pasó, a tecnología actual.", n=len(y_hist)))
+    c2.metric(tr("Tasa pura simulada"), f"{tasa_sim:.2%}",
+              delta=f"{tasa_sim-tasa_obs:+.2%} vs observada", delta_color="off",
+              help=tr("Monte Carlo ({n} sims) de la distribución seleccionada por el motor de riesgo ({d}), incluyendo masa en cero (P(Y=0)={p:.2%}) y la cola completa — no solo los años que tocaron pasar.",
+                      n=len(sims), d=rk.distribution["label"],
+                      p=rk.zero_mass["p_zero"]))
+    c3.metric(tr("Tasa técnica"), f"{tasa_tec:.2%}",
+              help=tr("pura simulada / (1 − deductions − margin) = {t:.2%} / {l:.2f}",
+                      t=tasa_sim, l=loading))
+    c4.metric(tr("Prima técnica"), f"{tasa_tec*sa:,.2f} USD/ha",
+              help=tr("SA = garantía × precio = {sa:,.0f} USD/ha", sa=sa))
 
-    st.caption(f"Rinde garantizado: {cov.guaranteed_yield:,.0f} kg/ha · "
-               f"Suma asegurada: {cov.sum_insured:,.0f} USD/ha · "
-               f"{res['n_years']} campañas")
+    # --- buildup explicado paso a paso ---
+    st.subheader(tr("Construcción de la tasa"))
+    build = pd.DataFrame([
+        {"Concepto": tr("1 · Tasa pura observada (burning cost)"),
+         "Valor": f"{tasa_obs:.2%}",
+         "Fuente": tr("Serie normalizada del motor · {n} campañas · frecuencia {f:.0%}",
+                      n=len(y_hist), f=freq_obs)},
+        {"Concepto": tr("2 · Ajuste por modelo de riesgo"),
+         "Valor": f"{tasa_sim-tasa_obs:+.2%}",
+         "Fuente": tr("Distribución {d} + P(Y=0)={p:.2%}: completa la cola que la muestra finita no vio (o suaviza la que sobre-representó)",
+                      d=rk.distribution["label"], p=rk.zero_mass["p_zero"])},
+        {"Concepto": tr("3 · Tasa pura simulada"),
+         "Valor": f"{tasa_sim:.2%}",
+         "Fuente": tr("MC {n} sims · frecuencia {f:.1%} · severidad {s:.1%}",
+                      n=len(sims), f=freq_sim, s=sev_sim)},
+        {"Concepto": tr("4 · Recargo estructura"),
+         "Valor": f"÷ {loading:.2f}",
+         "Fuente": tr("1 − deductions ({d:.0%}) − margen de riesgo ({m:.0%})",
+                      d=deductions_p, m=margin_p)},
+        {"Concepto": tr("5 · Tasa técnica final"),
+         "Valor": f"{tasa_tec:.2%}",
+         "Fuente": tr("Se detiene antes de recargos comerciales (gastos de venta, utilidad, reaseguro) — spec §88")},
+    ])
+    st.dataframe(build, use_container_width=True, hide_index=True)
 
-    st.subheader(tr("Curva de garantías"))
-    curve = bc.guarantee_curve(det["detrended"], expected, price)
-    st.dataframe(curve.style.format({
-        "guarantee": "{:.0%}", "guaranteed_yield": "{:,.0f}",
-        "pure_premium_rate": "{:.2%}", "frequency": "{:.1%}",
-        "severity": "{:.1%}"}))
-
-    st.subheader(tr("Loss cost por campaña"))
-    tabla = bc.yearly_table(det, cov)
-    fig = px.bar(tabla, x="campania", y="loss_cost",
-                 labels={"campania": "Campaña", "loss_cost": "Loss cost"})
-    fig.update_layout(height=380)
+    # --- curva de garantías: observado vs modelo ---
+    st.subheader(tr("Curva de garantías — observado vs modelo"))
+    cc = rk.claim_curve.copy()
+    scale = expected / mu
+    fig = go.Figure()
+    fig.add_scatter(x=cc["coverage"]*100, y=cc["hist_loss_cost"]*100,
+                    mode="lines+markers", name=tr("tasa pura observada"),
+                    line=dict(dash="dash", color="#C9A227"))
+    fig.add_scatter(x=cc["coverage"]*100, y=cc["expected_indemnity"]*100,
+                    mode="lines+markers", name=tr("tasa pura simulada"),
+                    line=dict(color="#2C5F2D", width=3))
+    fig.add_vline(x=guarantee*100, line_dash="dot",
+                  annotation_text=tr("garantía elegida"))
+    fig.update_layout(height=400,
+                      xaxis_title=tr("Nivel de cobertura (% del rinde esperado)"),
+                      yaxis_title=tr("Tasa pura (% de la garantía)"))
     st.plotly_chart(fig, use_container_width=True)
+    st.caption(tr("Dónde separan las curvas es donde el modelo aporta: en garantías bajas manda la cola (y los ceros); en garantías altas ambas convergen porque los siniestros leves sí están bien representados en la muestra."))
 
+    with st.expander(tr("Loss cost por campaña (observado)")):
+        lc_df = pd.DataFrame({"campania": nh["year"],
+                              "loss_cost": lc_hist})
+        fig = px.bar(lc_df, x="campania", y="loss_cost",
+                     labels={"campania": tr("Campaña"), "loss_cost": "Loss cost"})
+        fig.update_layout(height=320)
+        st.plotly_chart(fig, use_container_width=True)

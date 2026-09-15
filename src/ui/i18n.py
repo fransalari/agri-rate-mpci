@@ -158,6 +158,57 @@ EN = {
     "Detrending manual": "Manual detrending",
     "Simulación Monte Carlo manual": "Manual Monte Carlo simulation",
 
+
+    # --- modo uniforme + pricing buildup ---
+    "Metodología uniforme de cartera": "Uniform portfolio methodology",
+    "Aplica la metodología modal de la provincia (modelo de trend + modo) a todos los departamentos, re-estimando parámetros localmente. Compara la prima contra AUTO por departamento.":
+        "Applies the province's modal methodology (trend model + mode) to every department, re-estimating parameters locally. Compares the premium against per-department AUTO.",
+    "Metodología uniforme vs AUTO por departamento": "Uniform methodology vs per-department AUTO",
+    "Metodología modal aplicada a toda la provincia: **{m}** · departamentos re-estimados: {n} ({lst})":
+        "Modal methodology applied province-wide: **{m}** · re-estimated departments: {n} ({lst})",
+    "Prima técnica (uniforme)": "Technical premium (uniform)",
+    "Pérdida CAT (uniforme)": "CAT loss (uniform)",
+    "Tasa técnica media (uniforme)": "Average technical rate (uniform)",
+    "AUTO sigue siendo la referencia (respeta trends locales con evidencia fuerte); la uniforme sirve como sensibilidad de governance y para discutir con reaseguro.":
+        "AUTO remains the reference (it respects local trends with strong evidence); the uniform run serves as a governance sensitivity and for reinsurance discussions.",
+    "Construcción de tasa transparente: qué aporta cada fuente (histórico observado → modelo simulado → recargos) y por qué.":
+        "Transparent rate buildup: what each source contributes (observed history → simulated model → loadings) and why.",
+    "Default: E[rinde] del motor. Si lo cambiás, las simulaciones se re-escalan proporcionalmente.":
+        "Default: engine expected yield. If you change it, simulations rescale proportionally.",
+    "Tasa pura observada": "Observed pure rate",
+    "Tasa pura simulada": "Simulated pure rate",
+    "Tasa técnica": "Technical rate", "Prima técnica": "Technical premium",
+    "Burning cost histórico: promedio del loss cost sobre la serie normalizada por el motor ({n} campañas). Es lo que efectivamente pasó, a tecnología actual.":
+        "Historical burning cost: average loss cost over the engine-normalized series ({n} seasons). What actually happened, at current technology.",
+    "Monte Carlo ({n} sims) de la distribución seleccionada por el motor de riesgo ({d}), incluyendo masa en cero (P(Y=0)={p:.2%}) y la cola completa — no solo los años que tocaron pasar.":
+        "Monte Carlo ({n} sims) from the risk engine's selected distribution ({d}), including zero mass (P(Y=0)={p:.2%}) and the full tail — not only the years that happened to occur.",
+    "pura simulada / (1 − deductions − margin) = {t:.2%} / {l:.2f}":
+        "simulated pure / (1 − deductions − margin) = {t:.2%} / {l:.2f}",
+    "SA = garantía × precio = {sa:,.0f} USD/ha": "SI = guarantee × price = {sa:,.0f} USD/ha",
+    "Construcción de la tasa": "Rate buildup",
+    "1 · Tasa pura observada (burning cost)": "1 · Observed pure rate (burning cost)",
+    "Serie normalizada del motor · {n} campañas · frecuencia {f:.0%}":
+        "Engine-normalized series · {n} seasons · frequency {f:.0%}",
+    "2 · Ajuste por modelo de riesgo": "2 · Risk-model adjustment",
+    "Distribución {d} + P(Y=0)={p:.2%}: completa la cola que la muestra finita no vio (o suaviza la que sobre-representó)":
+        "Distribution {d} + P(Y=0)={p:.2%}: completes the tail the finite sample never saw (or smooths what it over-represented)",
+    "3 · Tasa pura simulada": "3 · Simulated pure rate",
+    "MC {n} sims · frecuencia {f:.1%} · severidad {s:.1%}":
+        "MC {n} sims · frequency {f:.1%} · severity {s:.1%}",
+    "4 · Recargo estructura": "4 · Structural loading",
+    "1 − deductions ({d:.0%}) − margen de riesgo ({m:.0%})":
+        "1 − deductions ({d:.0%}) − risk margin ({m:.0%})",
+    "5 · Tasa técnica final": "5 · Final technical rate",
+    "Se detiene antes de recargos comerciales (gastos de venta, utilidad, reaseguro) — spec §88":
+        "Stops before commercial loadings (acquisition costs, profit, reinsurance) — spec §88",
+    "Curva de garantías — observado vs modelo": "Guarantee curve — observed vs model",
+    "tasa pura observada": "observed pure rate", "tasa pura simulada": "simulated pure rate",
+    "garantía elegida": "chosen guarantee",
+    "Tasa pura (% de la garantía)": "Pure rate (% of guarantee)",
+    "Dónde separan las curvas es donde el modelo aporta: en garantías bajas manda la cola (y los ceros); en garantías altas ambas convergen porque los siniestros leves sí están bien representados en la muestra.":
+        "Where the curves separate is where the model adds value: at low guarantees the tail (and zeros) dominate; at high guarantees both converge because mild claims are well represented in the sample.",
+    "Loss cost por campaña (observado)": "Loss cost by season (observed)",
+
     # --- otras páginas ---
     "Análisis de rindes": "Yield analysis",
     "Estadística descriptiva": "Descriptive statistics",
@@ -180,7 +231,7 @@ EN = {
 }
 
 
-def tr(s: str, **kw) -> str:
+def tr(_s: str, **kw) -> str:
     lang = st.session_state.get("lang", "es")
-    out = EN.get(s, s) if lang == "en" else s
+    out = EN.get(_s, _s) if lang == "en" else _s
     return out.format(**kw) if kw else out
