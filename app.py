@@ -20,7 +20,8 @@ from src.pricing.yield_insurance import Coverage
 from src.simulation import monte_carlo as mc
 from src.simulation.distributions import fit_all
 
-st.set_page_config(page_title="AGRO RATE", page_icon="🌾", layout="wide")
+st.set_page_config(page_title="AGRO RATE — Confidencial",
+                   layout="wide")
 
 
 @st.cache_data(show_spinner="Cargando datos...")
@@ -31,10 +32,23 @@ def get_data() -> pd.DataFrame:
 df = get_data()
 
 # ---------------------------------------------------------------- sidebar
-st.sidebar.title("🌾 AGRO RATE")
+st.markdown("""<style>
+#MainMenu, footer, header [data-testid="stToolbar"] {visibility: hidden;}
+html, body, [class*="css"] {font-family: "Segoe UI", "Inter", -apple-system, sans-serif;}
+h1 {font-weight: 600; letter-spacing: -0.02em;}
+[data-testid="stMetricValue"] {font-weight: 600;}
+.conf-band {font-size: 0.72em; letter-spacing: 0.14em; color: #8a8a8a;
+            border-bottom: 1px solid #e6e6e6; padding-bottom: 4px;
+            margin-bottom: 10px; text-transform: uppercase;}
+</style>""", unsafe_allow_html=True)
+st.markdown('<div class="conf-band">Confidencial · Uso interno · '
+            'Prohibida su reproducción o distribución</div>',
+            unsafe_allow_html=True)
+
+st.sidebar.title("AGRO RATE")
 st.sidebar.caption("Agricultural Risk & Insurance Analytics")
 
-lang = st.sidebar.radio("🌐", ["ES", "EN"], horizontal=True,
+lang = st.sidebar.radio("Idioma", ["ES", "EN"], horizontal=True,
                         label_visibility="collapsed")
 st.session_state["lang"] = lang.lower()
 st.session_state["mode"] = st.sidebar.radio(
@@ -45,8 +59,8 @@ edu.glossary_sidebar()
 
 page = st.sidebar.radio(
     tr("Módulo"),
-    ["📊 Resultados — cartera", "1️⃣ Datos", "2️⃣ Exploración",
-     "3️⃣ Normalización (trend)", "4️⃣ Riesgo + Monte Carlo", "5️⃣ Pricing"],
+    ["Resultados — cartera", "1 · Datos", "2 · Exploración",
+     "3 · Normalización (trend)", "4 · Riesgo y Monte Carlo", "5 · Pricing"],
     format_func=tr, key="nav_page",
 )
 st.sidebar.caption(tr("Pipeline: 1 datos → 2 exploración → 3 trend/normalización → 4 distribución de riesgo y MC → 5 pricing. Resultados consolida la cartera."))
@@ -123,6 +137,10 @@ else:
         trend=np.nan, detrended=serie.get("rendimiento_kgxha"), yield_index=np.nan)
 
 st.sidebar.caption(f"Fuente: {df.attrs.get('source', '—')}")
+st.sidebar.caption("—" * 3)
+st.sidebar.caption(tr("**CONFIDENCIAL** · Documento de trabajo interno. "
+                      "La información y metodologías contenidas son propiedad "
+                      "de la compañía."))
 
 # ---------------------------------------------------------------- helpers
 
@@ -234,7 +252,7 @@ def compute_portfolio(cultivo: str, provincia: str, desde: int, hasta: int,
     return cons_auto, cons_uni, modal, changed, skipped, params
 
 
-if page == "📊 Resultados — cartera":
+if page == "Resultados — cartera":
     edu.journey(8)
     st.title(tr("Resultados — consolidado de cartera"))
     st.caption(tr("Tarifación técnica propia (modelo area-yield sobre serie normalizada) · escenario CAT · peor año histórico · loss cap"))
@@ -480,7 +498,7 @@ if page == "📊 Resultados — cartera":
                "diversificación espacial, criterio conservador).")
 
 
-elif page == "1️⃣ Datos":
+elif page == "1 · Datos":
     edu.journey(0)
     st.caption(tr("Paso 1 de 5 · fuente MAGyP → dataset parquet listo para modelar"))
 
@@ -511,9 +529,9 @@ elif page == "1️⃣ Datos":
                 st.error(f"Falló la descarga: {exc}")
 
 
-elif page == "2️⃣ Exploración":
+elif page == "2 · Exploración":
     edu.journey(0)
-    # ---- credibilidad de la cola (§6) ----
+    # ---- credibilidad de la cola ----
     _y = serie.dropna(subset=["rendimiento_kgxha"])["rendimiento_kgxha"]
     _g_prop = st.slider(tr("Garantía propuesta (para diagnóstico de credibilidad)"),
                         0.50, 0.90, 0.70, 0.05, key="cred_g")
@@ -534,7 +552,7 @@ elif page == "2️⃣ Exploración":
         "Menos observaciones en la cola ⇒ más incertidumbre en la tasa (no necesariamente tasa más alta).",
         "No confundir una serie larga con una cola bien estimada.")
 
-    # ---- timeline clasificado (§6) ----
+    # ---- timeline clasificado ----
     _cls = edu.classify_years(serie)
     _colors = {"EXTREMO": "#B85042", "BAJO": "#C9A227",
                "NORMAL": "#97BC62", "BUENO": "#2C5F2D"}
@@ -581,7 +599,7 @@ elif page == "2️⃣ Exploración":
         st.dataframe(ystats.worst_years(det, n=5))
 
 
-elif page == "3️⃣ Normalización (trend)":
+elif page == "3 · Normalización (trend)":
     edu.journey(1)
     st.caption(tr("Paso 3 de 5 · separar tecnología μ(t) del shock agrícola. Kernel REGRESSION (suavizado local de μ(t), benchmark de mercado) sí es candidato; kernel DENSITY sigue prohibido acá — la forma de los shocks vive en el paso 4"))
     tab_auto, tab_manual = st.tabs([tr("AUTO (motor)"), tr("Manual (didáctico)")])
@@ -736,7 +754,7 @@ elif page == "3️⃣ Normalización (trend)":
         c2.metric("CV detrendeado", f"{det['detrended'].std(ddof=1) / det['detrended'].mean():.0%}")
 
 
-elif page == "4️⃣ Riesgo + Monte Carlo":
+elif page == "4 · Riesgo y Monte Carlo":
     edu.journey(2)
     st.caption(tr("Paso 4 de 5 · distribución de shocks (KDE benchmark, gates de cola) + masa en cero + Monte Carlo — reemplaza al módulo AIC viejo"))
     tab_auto, tab_manual = st.tabs([tr("Motor AUTO (recomendado)"), tr("Manual (legacy)")])
@@ -761,7 +779,7 @@ elif page == "4️⃣ Riesgo + Monte Carlo":
                           "sin inventar precisión."))
             st.stop()
 
-        # -------- card por defecto (§60) ---------------------------------
+        # -------- card por defecto  ---------------------------------
         c1, c2, c3, c4 = st.columns(4)
         c1.metric(tr("Modelo recomendado"), rk.trend["model"],
                   help=f"{rk.trend['detrending_mode']} · desde {rk.trend['start_year']}")
@@ -789,7 +807,7 @@ elif page == "4️⃣ Riesgo + Monte Carlo":
             for r in rk.selection["reason"]:
                 st.write("–", r)
 
-        # -------- distribución + zoom cola (§65-66, §68) ------------------
+        # -------- distribución + zoom cola  ------------------
         sims = rk.simulated_yields
         zoom = st.radio(tr("Distribución de rindes simulada — zoom cola inferior"),
                         ["Densidad completa", "Zoom cola (≤ P30)"],
@@ -821,7 +839,7 @@ elif page == "4️⃣ Riesgo + Monte Carlo":
                       "discreta — no se esconde en la densidad.", p=p0))
 
         if edu.guided():
-            with st.expander("🧪 " + tr("Experimento: bandwidth del kernel (no afecta la tarifa)")):
+            with st.expander(tr("Experimento: bandwidth del kernel (no afecta la tarifa)")):
                 st.caption(tr("SUB-SUAVIZADO ← bandwidth → SOBRE-SUAVIZADO · La tarifa real usa el bandwidth elegido estadísticamente (LOO-likelihood); este slider es para VER por qué no es una perilla cosmética."))
                 from src.distribution.candidates import ReflectedKDE
                 _nh = rk.normalized_history
@@ -857,7 +875,7 @@ elif page == "4️⃣ Riesgo + Monte Carlo":
             "Subdispersión de cola ⇒ tasa subestimada sistemáticamente (el error caro).",
             "Un candidato con mejor AIC pero gate de cola fallido queda RECHAZADO — mirá el ranking abajo.")
 
-        # -------- claim curve + backtest (§67, §61) -----------------------
+        # -------- claim curve + backtest  -----------------------
         c1, c2 = st.columns(2)
         with c1:
             cc = rk.claim_curve
@@ -887,13 +905,13 @@ elif page == "4️⃣ Riesgo + Monte Carlo":
                                   yaxis_title="%")
                 st.plotly_chart(fig, use_container_width=True)
 
-        with st.expander("❓ " + tr("Preguntas metodológicas frecuentes")):
+        with st.expander(tr("Preguntas metodológicas frecuentes")):
             st.markdown(tr("**¿Cómo se simulan las colas? ¿Usan el coeficiente de variación?** No. Un CV resume toda la variabilidad en un número y presupone una forma (aprox. simétrica) — justo lo que falla en la cola. Acá la cola sale de tres piezas: (1) los años malos reales del departamento, normalizados a tecnología actual, que quedan como anclas; (2) la forma completa de la distribución ajustada a esos shocks (weibull, kernel, etc.), seleccionada por backtest con gates que rechazan a quien comprima la cola; (3) la masa en cero. El CV del departamento queda implícito en la distribución; nunca se usa el de la provincia."))
             st.markdown(tr("**¿Los datos son del departamento o de la provincia?** La distribución se ajusta SIEMPRE a la serie del departamento seleccionado. La provincia no entra en la forma de la cola; solo aparece en dos lugares acotados: el prior de P(Y=0) por nivel de agregación, y (en Resultados) la metodología modal si activás el modo uniforme. Si simulás a nivel FIELD/FARM se aplican multiplicadores de volatilidad prior — un supuesto documentado en config, no una estimación."))
             st.markdown(tr("**¿Cómo se generan los rindes cero?** Con un modelo hurdle en dos partes: P(Y=0) se estima clasificando los ceros históricos por superficie (sembrada sin cosechar ≠ error de encuesta) y aplicando shrinkage beta-binomial hacia un prior por nivel de agregación — por eso P(Y=0)>0 aunque el departamento nunca haya registrado un cero. En la simulación: si u<P(Y=0) el rinde es exactamente 0; si no, se muestrea de la distribución positiva. Una densidad continua pura no puede producir un cero verdadero; la mezcla sí."))
 
-        # ---------- Kernel Risk Model (§31, §36-37): distribución vs motor ----------
-        st.subheader("🧬 " + tr("Kernel Risk Model — misma distribución, tres motores numéricos"))
+        # ---------- Kernel Risk Model: distribución vs motor ----------
+        st.subheader(tr("Kernel Risk Model — misma distribución, tres motores numéricos"))
         from src.distribution.kernel_engine import KernelRiskModel
         _nhk = rk.normalized_history
         _posk = _nhk[~_nhk["zero_event"]]
@@ -921,7 +939,7 @@ elif page == "4️⃣ Riesgo + Monte Carlo":
                     + f"KERNEL_INTEGRATION (analítica) **{_ana['expected_loss']:.3%}**")
         st.caption(tr("El kernel ES la distribución; determinístico/MC/integración son solo formas de consumirla. Convergen porque no hay una segunda calibración. El determinístico no tiene ruido de muestreo y cada escenario es trazable a una campaña real."))
 
-        with st.expander("🔎 " + tr("Trazabilidad: ¿por qué existe cada escenario? (§35)")):
+        with st.expander("🔎 " + tr("Trazabilidad: ¿por qué existe cada escenario?")):
             _sc = _kmod.deterministic_scenarios(_nodes)
             _worst_anchor = _posk.loc[_posk["standardized_shock"].idxmin()]
             _ay = st.selectbox(tr("Ancla histórica"),
@@ -1018,7 +1036,7 @@ elif page == "4️⃣ Riesgo + Monte Carlo":
         st.dataframe(fit_all(det["detrended"]).drop(columns="params"))
 
 
-elif page == "5️⃣ Pricing":
+elif page == "5 · Pricing":
     edu.journey(8)
     st.caption(tr("Paso 5 de 5 · del rinde al precio: prima pura por nivel de garantía"))
 
@@ -1101,7 +1119,7 @@ elif page == "5️⃣ Pricing":
         "Si la distribución seleccionada por el motor (p.ej. weibull) y el kernel difieren materialmente en tasa, eso es MODEL RISK y está cuantificado abajo — no lo resuelve elegir motor.",
         "No uses el determinístico para agregar cartera asumiendo independencia: subestima el CAT. Y no re-calibres el kernel por motor: es UNA calibración.")
 
-    # --- guardrail de experiencia (§24): opcional, default filosofía actual ---
+    # --- guardrail de experiencia : opcional, default filosofía actual ---
     _gmode = st.selectbox(
         tr("Modo de tasa pura (guardrail de experiencia)"),
         ["MODEL_ONLY", "MAX_MODEL_OBSERVED", "CREDIBILITY_BLEND",
@@ -1160,7 +1178,7 @@ elif page == "5️⃣ Pricing":
                       d=deductions_p, m=margin_p)},
         {"Concepto": tr("5 · Tasa técnica final"),
          "Valor": f"{tasa_tec:.2%}",
-         "Fuente": tr("Se detiene antes de recargos comerciales (gastos de venta, utilidad, reaseguro) — spec §88")},
+         "Fuente": tr("Se detiene antes de recargos comerciales (gastos de venta, utilidad, reaseguro)")},
     ])
     st.dataframe(build, use_container_width=True, hide_index=True)
 
@@ -1183,7 +1201,7 @@ elif page == "5️⃣ Pricing":
     st.plotly_chart(fig, use_container_width=True)
     st.caption(tr("Dónde separan las curvas es donde el modelo aporta: en garantías bajas manda la cola (y los ceros); en garantías altas ambas convergen porque los siniestros leves sí están bien representados en la muestra."))
 
-    # ---------- frecuencia × severidad (§15) ----------
+    # ---------- frecuencia × severidad  ----------
     st.subheader(tr("Descomposición: frecuencia × severidad"))
     st.markdown(f"**P(siniestro) × severidad media = pérdida esperada**  \n"
                 f"{freq_sim:.1%} × {sev_sim:.1%} ≈ **{freq_sim*sev_sim:.2%}**"
@@ -1195,7 +1213,7 @@ elif page == "5️⃣ Pricing":
         "Subir la cobertura sube sobre todo la frecuencia; el riesgo CAT vive en la severidad.",
         "Un modelo puede clavar la frecuencia y subestimar la severidad — el backtest del motor valida ambas.")
 
-    # ---------- incertidumbre de la tasa (§18) ----------
+    # ---------- incertidumbre de la tasa  ----------
     st.subheader(tr("Incertidumbre de la tasa"))
     _ck = f"{cultivo}|{depto}|{desde}|{hasta}|{guarantee:.2f}"
     _lo, _hi, _B = edu.bootstrap_rate_ci(rk, guarantee, _ck)
@@ -1211,7 +1229,7 @@ elif page == "5️⃣ Pricing":
         "Muestra chica o cola escasa ⇒ intervalo más ancho (no necesariamente tasa más alta).",
         "El intervalo mide riesgo de DATOS con el modelo fijo; el model risk de abajo es otra cosa.")
 
-    # ---------- leave-one-year-out (§21) ----------
+    # ---------- leave-one-year-out ----------
     st.subheader(tr("Estabilidad leave-one-year-out"))
     _loyo = edu.loyo_rates(rk, guarantee, _ck)
     _base = _loyo.attrs["base"]
@@ -1226,7 +1244,7 @@ elif page == "5️⃣ Pricing":
                   mn=_loyo['rate'].min(), mx=_loyo['rate'].max(),
                   y=int(_inf['year']), d=_inf['delta']))
 
-    # ---------- model risk (§19) ----------
+    # ---------- model risk ----------
     st.subheader(tr("Model risk: la tasa según cada metodología"))
     _mr = edu.model_risk_table(rk, guarantee, _ck)
     _sel_name = rk.distribution["recommended"]
@@ -1236,20 +1254,20 @@ elif page == "5️⃣ Pricing":
     st.caption(tr("min {mn:.2%} · mediana {md:.2%} · max {mx:.2%} — esta dispersión es MODEL RISK: distinta del riesgo de datos (bootstrap) y del de proceso.",
                   mn=_mr['rate'].min(), md=_mr['rate'].median(), mx=_mr['rate'].max()))
 
-    # ---------- sanity checks (§20) ----------
+    # ---------- sanity checks  ----------
     st.subheader(tr("Controles de sanidad actuarial"))
     _checks = edu.sanity_checks(rk, rk.claim_curve, _loyo, guarantee, sims)
     st.dataframe(pd.DataFrame(_checks), use_container_width=True, hide_index=True)
 
-    # ---------- formula inspector (§24) ----------
-    with st.expander("🔍 " + tr("Ver fórmulas con los valores reales")):
+    # ---------- formula inspector  ----------
+    with st.expander(tr("Ver fórmulas con los valores reales")):
         st.latex(rf"G = c \times E[Y] = {guarantee:.0%} \times {expected:,.0f} = {g_kg:,.0f}\ kg/ha")
         st.latex(rf"LC = E\left[\frac{{\max(G-Y,0)}}{{G}}\right] = {tasa_sim:.4f}")
         st.latex(rf"tasa\ t\'ecnica = \frac{{LC}}{{1-ded-mr}} = \frac{{{tasa_sim:.4f}}}{{{loading:.2f}}} = {tasa_tec:.4f}")
         st.latex(rf"prima = tasa \times SA = {tasa_tec:.4f} \times {sa:,.0f} = {tasa_tec*sa:,.2f}\ USD/ha")
 
-    # ---------- rate story (§23) ----------
-    st.subheader("📜 " + tr("La historia de tu tasa"))
+    # ---------- rate story  ----------
+    st.subheader(tr("La historia de tu tasa"))
     _pg_sel = float((sims < g_kg).mean())
     _short = g_kg - sims[sims < g_kg]
     _story = tr(
