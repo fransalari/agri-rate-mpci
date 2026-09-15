@@ -371,7 +371,7 @@ class RiskDistributionEngine:
             ch = next(c for c in cands if c.name == aic_champion)
             if ch.status != "OK":
                 rs.append(f"{aic_champion} tuvo el mejor AICc pero fue "
-                          f"RECHAZADO: {ch.reason} (§30: el AIC no tiene "
+                          f"RECHAZADO: {ch.reason} (el AIC no tiene "
                           "autoridad para borrar riesgo).")
             else:
                 rs.append(f"{aic_champion} fue el campeón AICc; "
@@ -379,13 +379,13 @@ class RiskDistributionEngine:
                           "(cola + indemnización + volatilidad).")
         if selected.name != best.name:
             rs.append(f"{best.name} tuvo el menor RiskScore; {selected.name} "
-                      "quedó dentro de 1 SE con menor complejidad (§32).")
+                      "quedó dentro de 1 SE con menor complejidad.")
         rs.append(f"Seleccionado: {label} — preserva la volatilidad downside "
                   f"(ratio {selected.downside_sd_ratio:.2f}) y calibra "
                   "frecuencia/severidad de siniestros en el backtest rolling.")
         if use_ensemble:
             rs.append("Estabilidad de selección insuficiente para un único "
-                      "modelo → ensemble ponderado por score (§49).")
+                      "modelo → ensemble ponderado por score.")
         if vol["model"] != "constant":
             rs.append(f"Volatilidad {vol['model']}: evidencia de "
                       f"{vol['evidence']['variance_drift'].lower()} / "
@@ -393,7 +393,7 @@ class RiskDistributionEngine:
                       f"(down/up SD = {vol['down_up_ratio']:.2f}).")
         rs.append(f"P(Y=0) = {zero['p_zero']:.2%} a nivel "
                   f"{zero['aggregation_level']} ({zero['estimation_method']}); "
-                  "el Monte Carlo produce ceros exactos (§56).")
+                  "el Monte Carlo produce ceros exactos.")
         return rs
 
     # ------------------------------------------------------------------

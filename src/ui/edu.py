@@ -39,13 +39,13 @@ def edu(title: str, concepto: str, formula: str | None, por_que: str,
     """Componente educativo estándar (§5). Solo visible en modo Guiado."""
     if not guided():
         return
-    with st.expander(f"📖 {tr(title)}"):
+    with st.expander(tr(title)):
         st.markdown(f"**{tr('Concepto')}** · {tr(concepto)}")
         if formula:
             st.latex(formula)
         st.markdown(f"**{tr('Por qué importa')}** · {tr(por_que)}")
         st.markdown(f"**{tr('Impacto en la tasa')}** · {tr(impacto)}")
-        st.markdown(f"⚠️ **{tr('Advertencia actuarial')}** · {tr(advertencia)}")
+        st.markdown(f"**{tr('Advertencia actuarial')}** · {tr(advertencia)}")
 
 
 # ======================================================================
@@ -221,6 +221,6 @@ GLOSSARY = {
 
 
 def glossary_sidebar():
-    with st.sidebar.expander("📚 " + tr("Glosario")):
+    with st.sidebar.expander(tr("Glosario")):
         for k, v in GLOSSARY.items():
             st.markdown(f"**{k}** — {tr(v)}")

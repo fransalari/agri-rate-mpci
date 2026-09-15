@@ -131,19 +131,19 @@ EN = {
 
 
     # --- pipeline reordenado ---
-    "📊 Resultados — cartera": "📊 Results — portfolio",
-    "1️⃣ Datos": "1️⃣ Data", "2️⃣ Exploración": "2️⃣ Exploration",
-    "3️⃣ Normalización (trend)": "3️⃣ Normalization (trend)",
-    "4️⃣ Riesgo + Monte Carlo": "4️⃣ Risk + Monte Carlo",
-    "5️⃣ Pricing": "5️⃣ Pricing",
+    "Resultados — cartera": "Results — portfolio",
+    "1 · Datos": "1 · Data", "2 · Exploración": "2 · Exploration",
+    "3 · Normalización (trend)": "3 · Normalization (trend)",
+    "4 · Riesgo y Monte Carlo": "4 · Risk & Monte Carlo",
+    "5 · Pricing": "5 · Pricing",
     "Pipeline: 1 datos → 2 exploración → 3 trend/normalización → 4 distribución de riesgo y MC → 5 pricing. Resultados consolida la cartera.":
         "Pipeline: 1 data → 2 exploration → 3 trend/normalization → 4 risk distribution & MC → 5 pricing. Results consolidates the portfolio.",
     "Paso 1 de 5 · fuente MAGyP → dataset parquet listo para modelar":
         "Step 1 of 5 · MAGyP source → parquet dataset ready for modelling",
     "Paso 2 de 5 · mirar la serie cruda antes de modelar":
         "Step 2 of 5 · look at the raw series before modelling",
-    "Paso 3 de 5 · separar tecnología μ(t) del shock agrícola — acá NO se usa kernel: el KDE es solo para la distribución de shocks (paso 4)":
-        "Step 3 of 5 · separate technology μ(t) from the agricultural shock — NO kernel here: KDE only models the shock distribution (step 4)",
+    "Paso 3 de 5 · separar tecnología μ(t) del shock agrícola. Kernel REGRESSION (suavizado local de μ(t), benchmark de mercado) sí es candidato; kernel DENSITY sigue prohibido acá — la forma de los shocks vive en el paso 4":
+        "Step 3 of 5 · separate technology μ(t) from the agricultural shock. Kernel REGRESSION (local smoothing of μ(t), the market benchmark) IS a candidate; kernel DENSITY remains forbidden here — the shape of the shocks lives in step 4",
     "Paso 4 de 5 · distribución de shocks (KDE benchmark, gates de cola) + masa en cero + Monte Carlo — reemplaza al módulo AIC viejo":
         "Step 4 of 5 · shock distribution (KDE benchmark, tail gates) + zero mass + Monte Carlo — supersedes the old AIC module",
     "Paso 5 de 5 · del rinde al precio: prima pura por nivel de garantía":
@@ -199,8 +199,8 @@ EN = {
     "1 − deductions ({d:.0%}) − margen de riesgo ({m:.0%})":
         "1 − deductions ({d:.0%}) − risk margin ({m:.0%})",
     "5 · Tasa técnica final": "5 · Final technical rate",
-    "Se detiene antes de recargos comerciales (gastos de venta, utilidad, reaseguro) — spec §88":
-        "Stops before commercial loadings (acquisition costs, profit, reinsurance) — spec §88",
+    "Se detiene antes de recargos comerciales (gastos de venta, utilidad, reaseguro)":
+        "Stops before commercial loadings (acquisition costs, profit, reinsurance)",
     "Curva de garantías — observado vs modelo": "Guarantee curve — observed vs model",
     "tasa pura observada": "observed pure rate", "tasa pura simulada": "simulated pure rate",
     "garantía elegida": "chosen guarantee",
@@ -291,8 +291,8 @@ EN = {
         "**Expected loss (70% guarantee) by engine** — same calibrated distribution: ",
     "El kernel ES la distribución; determinístico/MC/integración son solo formas de consumirla. Convergen porque no hay una segunda calibración. El determinístico no tiene ruido de muestreo y cada escenario es trazable a una campaña real.":
         "The kernel IS the distribution; deterministic/MC/integration are just ways of consuming it. They converge because there is no second calibration. The deterministic engine has no sampling noise and every scenario traces back to a real season.",
-    "Trazabilidad: ¿por qué existe cada escenario? (§35)":
-        "Traceability: why does each scenario exist? (§35)",
+    "Trazabilidad: ¿por qué existe cada escenario?":
+        "Traceability: why does each scenario exist?",
     "Ancla histórica": "Historical anchor",
     "Campaña {y}: shock normalizado {b:.3f} → {n} escenarios vecinos vía bandwidth {h:.3f}. El extremo histórico sigue siendo un centro de masa de probabilidad — el suavizado no lo borra.":
         "Season {y}: normalized shock {b:.3f} → {n} neighboring scenarios via bandwidth {h:.3f}. The historical extreme remains a center of probability mass — smoothing does not erase it.",
@@ -328,6 +328,11 @@ EN = {
         "**How are zero yields generated?** With a two-part hurdle model: P(Y=0) is estimated by classifying historical zeros via planted/harvested area (planted-not-harvested ≠ survey error) and applying beta-binomial shrinkage toward an aggregation-level prior — which is why P(Y=0)>0 even if the department never recorded a zero. In simulation: if u<P(Y=0) the yield is exactly 0; otherwise it is drawn from the positive distribution. A purely continuous density cannot produce a true zero; the mixture can.",
     "Base de la tasa: **burning cost histórico** sobre la serie normalizada (trigger {t}); el CAT sí es simulado. La página Pricing muestra la **tasa del modelo** a la garantía que elijas — por eso pueden diferir: distinta cobertura, distinta base (observado vs simulado) y cartera vs departamento individual.":
         "Rate basis: **historical burning cost** on the normalized series (trigger {t}); the CAT scenario IS simulated. The Pricing page shows the **model rate** at your chosen guarantee — hence they can differ: different coverage, different basis (observed vs simulated) and portfolio vs single department.",
+
+
+    # --- corporativo ---
+    "**CONFIDENCIAL** · Documento de trabajo interno. La información y metodologías contenidas son propiedad de la compañía.":
+        "**CONFIDENTIAL** · Internal working document. The information and methodologies herein are company property.",
 
     # --- otras páginas ---
     "Análisis de rindes": "Yield analysis",
