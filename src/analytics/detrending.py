@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 
-METHODS = ("linear", "quadratic", "loess", "moving_average", "none")
+METHODS = ("linear", "quadratic", "loess", "kernel_regression", "moving_average", "none")
 
 
 def detrend(df: pd.DataFrame,
@@ -41,6 +41,9 @@ def detrend(df: pd.DataFrame,
         trend = _polyfit(t, y, 2)
     elif method == "loess":
         trend = sm.nonparametric.lowess(y, t, frac=loess_frac, return_sorted=False)
+    elif method == "kernel_regression":
+        from src.normalization.trend_models import KernelRegressionModel
+        trend = KernelRegressionModel().fit(t.astype(float), y).predict(t.astype(float))
     else:  # moving_average
         trend = (pd.Series(y).rolling(ma_window, center=True, min_periods=1)
                  .mean().to_numpy())
@@ -66,6 +69,13 @@ def _polyfit(t: np.ndarray, y: np.ndarray, deg: int) -> np.ndarray:
     tc = t - t.mean()
     coefs = np.polyfit(tc, y, deg)
     return np.polyval(coefs, tc)
+
+
+def _kernel_regression_trend(df):
+    from src.normalization.trend_models import KernelRegressionModel
+    m = KernelRegressionModel().fit(df["anio"].to_numpy(float),
+                                    df["rendimiento_kgxha"].to_numpy(float))
+    return m.predict(df["anio"].to_numpy(float))
 
 
 def trend_slope(df: pd.DataFrame,

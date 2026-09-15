@@ -242,6 +242,70 @@ class SplineModel(YieldTrendModel):
         return np.maximum(self._basis(t) @ self.params_, _EPS)
 
 
+
+
+class KernelRegressionModel(YieldTrendModel):
+    """Kernel regression LOCAL LINEAR (benchmark de mercado, estilo RMA).
+
+    μ(t0) = intercepto de una regresión lineal ponderada por
+    K((t−t0)/h) × w_half_life alrededor de cada punto. Local linear (no
+    Nadaraya-Watson) por su mejor comportamiento en el BORDE: el target
+    year se extrapola con la pendiente LOCAL reciente, no con el promedio.
+
+    Bandwidth por regla fija sobre los años: h = max(4, span/6) campañas
+    — un supuesto documentado y estable, no una perilla; la validación
+    rolling del motor juzga al modelo completo contra los demás.
+
+    IMPORTANTE: esto es kernel de REGRESIÓN sobre μ(t). El kernel de
+    DENSIDAD de los shocks vive en el paso siguiente y sigue prohibido
+    acá (spec §27): son objetos distintos.
+    """
+    name = "kernel_regression"
+    df = 5   # df efectivo aprox (≈ span/h); penalizado como spline/loess
+
+    def __init__(self, bandwidth: float | None = None, **kwargs):
+        super().__init__()
+        self._h = bandwidth
+
+    def fit(self, years, yields, weights=None):
+        self._t = np.asarray(years, dtype=float)
+        self._y = np.asarray(yields, dtype=float)
+        self._w = _norm_w(weights, len(self._y))
+        span = max(self._t.max() - self._t.min(), 1.0)
+        self.h = float(self._h or max(4.0, span / 6.0))
+        self.meta_ = {"bandwidth_years": self.h,
+                      "estimator": "local_linear"}
+        return self
+
+    def _mu(self, t0: float) -> float:
+        k = np.exp(-0.5 * ((self._t - t0) / self.h) ** 2)
+        w = k * self._w
+        if w.sum() < _EPS:
+            return float(np.average(self._y, weights=self._w))
+        x = self._t - t0
+        sw, sx = w.sum(), (w * x).sum()
+        sxx, sy, sxy = (w * x * x).sum(), (w * self._y).sum(), (w * x * self._y).sum()
+        den = sw * sxx - sx * sx
+        if abs(den) < _EPS:                       # colapsa a Nadaraya-Watson
+            return float(sy / sw)
+        beta0 = (sxx * sy - sx * sxy) / den       # intercepto en t0
+        return float(beta0)
+
+    def predict(self, years):
+        t = np.asarray(years, dtype=float)
+        # extrapolación acotada: más allá del borde, congelar t0 al borde
+        # + pendiente local del borde (evita extrapolar la campana a ciegas)
+        t0s = np.clip(t, self._t.min(), self._t.max())
+        mu = np.array([self._mu(v) for v in t0s])
+        edge = t != t0s
+        if edge.any():
+            for i in np.where(edge)[0]:
+                b = t0s[i]
+                slope = (self._mu(b) - self._mu(b - 1.0))
+                mu[i] = self._mu(b) + slope * (t[i] - b)
+        return np.maximum(mu, _EPS)
+
+
 MODEL_REGISTRY: dict[str, type[YieldTrendModel]] = {
     "constant": ConstantModel,
     "linear": LinearModel,
@@ -250,6 +314,7 @@ MODEL_REGISTRY: dict[str, type[YieldTrendModel]] = {
     "quadratic": QuadraticModel,
     "piecewise": PiecewiseLinearModel,
     "spline": SplineModel,
+    "kernel_regression": KernelRegressionModel,
 }
 
 

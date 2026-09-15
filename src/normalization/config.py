@@ -28,7 +28,7 @@ class YieldNormalizationConfig:
 
     candidate_models: tuple[str, ...] = (
         "constant", "linear", "robust_linear", "log_linear",
-        "quadratic", "piecewise", "spline",
+        "quadratic", "piecewise", "spline", "kernel_regression",
     )
     candidate_detrending_modes: tuple[str, ...] = ("multiplicative", "additive")
     candidate_half_lives: tuple[float, ...] = (10, 15, 20, 25, 30, 40, float("inf"))
@@ -52,6 +52,7 @@ class YieldNormalizationConfig:
     model_df: dict = field(default_factory=lambda: {
         "constant": 1, "linear": 2, "robust_linear": 2, "log_linear": 2,
         "quadratic": 3, "piecewise": 4, "spline": 5, "loess": 6,
+        "kernel_regression": 5,
     })
     # penalidad = df / complexity_scale → proporcional a parámetros
     # por serie "típica" (~20 obs útiles). Centralizado y defendible.

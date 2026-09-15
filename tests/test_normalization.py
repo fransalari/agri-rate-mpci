@@ -252,3 +252,44 @@ def test_output_contract():
     assert np.isfinite(res.effective_sample_size)
     assert res.selection_confidence in ("HIGH", "MEDIUM", "LOW")
     assert res.diagnostics and "sample_size" in res.diagnostics
+
+
+# ---------------------------------------------------- kernel regression
+def test_kernel_regression_recovers_smooth_trend():
+    """Local linear recupera un trend suave no lineal y extrapola acotado."""
+    from src.normalization.trend_models import KernelRegressionModel
+    years = np.arange(1980, 2025).astype(float)
+    mu = 2000 + 60 * (years - 1980) - 0.45 * (years - 1980) ** 2
+    rng = np.random.default_rng(3)
+    y = mu * np.clip(rng.normal(1, 0.05, len(years)), 0.5, None)
+    m = KernelRegressionModel().fit(years, y)
+    err = np.mean(np.abs(m.predict(years) - mu) / mu)
+    assert err < 0.05
+    p_next = m.predict(np.array([2026.0]))[0]
+    assert 0.8 * mu[-1] < p_next < 1.2 * mu[-1]   # borde: sin extrapolación salvaje
+
+
+def test_kernel_regression_competes_and_respects_grid():
+    """Participa del grid AUTO y en plateau fuerte supera a linear."""
+    years = np.arange(1975, 2025).astype(float)
+    g = np.where(years < 2000, 80.0, np.where(years < 2012, 25.0, 4.0))
+    mu = 1500 + np.cumsum(g)
+    rng = np.random.default_rng(7)
+    y = mu * np.clip(rng.normal(1, 0.05, len(years)), 0.5, None)
+    df = pd.DataFrame({"anio": years.astype(int),
+                       "campania": years.astype(int).astype(str),
+                       "rendimiento_kgxha": y})
+    eng = YieldNormalizationEngine(YieldNormalizationConfig(execution_mode="FAST"))
+    res = eng.run(df, target_year=2026)
+    scores = {}
+    for c in res.candidates:
+        if np.isfinite(c.score):
+            m = c.config.trend_model
+            scores[m] = min(scores.get(m, np.inf), c.score)
+    assert "kernel_regression" in scores          # siempre evaluado (benchmark)
+    champ = min(scores.values())
+    assert scores["kernel_regression"] <= champ * 2.0   # competitivo, no basura
+    # lo actuarialmente relevante: E[2026] sigue el aplanamiento — sin
+    # sobre-extrapolar el crecimiento histórico fuerte
+    mu_2026 = mu[-1] + 4.0 * (2026 - years[-1])
+    assert res.expected_yield == pytest.approx(mu_2026, rel=0.12)

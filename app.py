@@ -70,7 +70,7 @@ serie = database.series(df, cultivo, depto, desde, hasta)
 
 method = st.sidebar.selectbox(
     tr("Detrending"),
-    ["auto (motor)", "linear", "quadratic", "loess", "moving_average", "none"],
+    ["auto (motor)", "linear", "quadratic", "loess", "kernel_regression", "moving_average", "none"],
     help=tr("'auto' selecciona modelo, modo, start year y half-life con validación out-of-sample (Yield Risk Normalization Engine)"), key="f_det")
 
 TARGET_YEAR = int(a_max) + 1
@@ -247,22 +247,33 @@ if page == "📊 Resultados — cartera":
     _prov_idx = (provincias.index(_prov_default.iloc[0])
                  if len(_prov_default) and _prov_default.iloc[0] in provincias else 0)
 
+    _sv = st.session_state.get("pf_saved", {})   # última selección del usuario
     with st.form("portfolio_form"):
         c1, c2, c3, c4 = st.columns(4)
-        provincia = c1.selectbox(tr("Provincia"), provincias, index=_prov_idx)
-        min_years = c2.number_input(tr("Mín. campañas por depto"), 10, 50, 25)
+        _pidx = (provincias.index(_sv["provincia"])
+                 if _sv.get("provincia") in provincias else _prov_idx)
+        provincia = c1.selectbox(tr("Provincia"), provincias, index=_pidx)
+        min_years = c2.number_input(tr("Mín. campañas por depto"), 10, 50,
+                                    int(_sv.get("min_years", 25)))
+        _tmodes = ["% del rinde esperado", "rinde fijo (kg/ha)"]
         trigger_mode_lbl = c3.selectbox(
-            tr("Modo de garantía"), ["% del rinde esperado", "rinde fijo (kg/ha)"],
-            format_func=tr)
+            tr("Modo de garantía"), _tmodes, format_func=tr,
+            index=_tmodes.index(_sv.get("tmode", _tmodes[0])))
         trigger_value = c4.number_input(
             tr("Valor de garantía"), 10.0, 5000.0,
-            65.0 if trigger_mode_lbl.startswith("%") else 1000.0, step=5.0,
+            float(_sv.get("tval", 65.0 if trigger_mode_lbl.startswith("%")
+                          else 1000.0)), step=5.0,
             help="65 ⇒ trigger = 65% del E[rinde] del motor · o kg/ha fijos")
         c1, c2, c3, c4 = st.columns(4)
-        sa_ha = c1.number_input(tr("Suma asegurada (USD/ha)"), 10.0, 5000.0, 200.0, step=10.0)
-        deductions = c2.number_input("Deductions", 0.0, 0.6, 0.25, step=0.01)
-        margin = c3.number_input("MR Margin", 0.0, 0.5, 0.10, step=0.01)
-        ret_period = c4.selectbox(tr("Período de retorno CAT"), [50, 100, 200, 250], index=1)
+        sa_ha = c1.number_input(tr("Suma asegurada (USD/ha)"), 10.0, 5000.0,
+                                float(_sv.get("sa", 200.0)), step=10.0)
+        deductions = c2.number_input("Deductions", 0.0, 0.6,
+                                     float(_sv.get("ded", 0.25)), step=0.01)
+        margin = c3.number_input("MR Margin", 0.0, 0.5,
+                                 float(_sv.get("mr", 0.10)), step=0.01)
+        _rps = [50, 100, 200, 250]
+        ret_period = c4.selectbox(tr("Período de retorno CAT"), _rps,
+                                  index=_rps.index(int(_sv.get("rp", 100))))
         c1, c2 = st.columns([1, 3])
         uniform = c1.checkbox(
             tr("Metodología uniforme de cartera"),
@@ -272,10 +283,15 @@ if page == "📊 Resultados — cartera":
                             disabled=not cap_on)
         run = st.form_submit_button(tr("Calcular consolidado"), type="primary")
 
-    if not run and "pf_result" not in st.session_state:
+    if not run and "pf_result2" not in st.session_state:
         st.info(tr("Configurá los parámetros y presioná **Calcular consolidado**. El motor de normalización corre por cada departamento elegible (~2 s c/u la primera vez; después queda cacheado)."))
         st.stop()
     if run:
+        st.session_state["pf_saved"] = {
+            "provincia": provincia, "min_years": int(min_years),
+            "tmode": trigger_mode_lbl, "tval": float(trigger_value),
+            "sa": float(sa_ha), "ded": float(deductions),
+            "mr": float(margin), "rp": int(ret_period)}
         loss_cap = cap_pct / 100.0 if cap_on else None
         tm = "pct" if trigger_mode_lbl.startswith("%") else "fixed"
         st.session_state["pf_result2"] = compute_portfolio(
@@ -293,6 +309,9 @@ if page == "📊 Resultados — cartera":
     cap_active = params.loss_cap is not None
 
     st.subheader(tr("Totales de cartera"))
+    st.caption(tr("Base de la tasa: **burning cost histórico** sobre la serie normalizada (trigger {t}); el CAT sí es simulado. La página Pricing muestra la **tasa del modelo** a la garantía que elijas — por eso pueden diferir: distinta cobertura, distinta base (observado vs simulado) y cartera vs departamento individual.",
+                  t=(f"{trigger_value:.0f}%" if trigger_mode_lbl.startswith("%")
+                     else f"{trigger_value:,.0f} kg/ha")))
     st.caption(tr("Serie utilizada: campañas {d}–{h} · triggers sobre E[rinde] estimado con esa ventana.", d=desde, h=hasta))
     c1, c2, c3, c4 = st.columns(4)
     c1.metric(tr("Prima técnica total"), f"${cons['prima_tecnica']:,.0f}",
@@ -564,7 +583,7 @@ elif page == "2️⃣ Exploración":
 
 elif page == "3️⃣ Normalización (trend)":
     edu.journey(1)
-    st.caption(tr("Paso 3 de 5 · separar tecnología μ(t) del shock agrícola — acá NO se usa kernel: el KDE es solo para la distribución de shocks (paso 4)"))
+    st.caption(tr("Paso 3 de 5 · separar tecnología μ(t) del shock agrícola. Kernel REGRESSION (suavizado local de μ(t), benchmark de mercado) sí es candidato; kernel DENSITY sigue prohibido acá — la forma de los shocks vive en el paso 4"))
     tab_auto, tab_manual = st.tabs([tr("AUTO (motor)"), tr("Manual (didáctico)")])
     with tab_auto:
 
@@ -867,6 +886,11 @@ elif page == "4️⃣ Riesgo + Monte Carlo":
                                   xaxis_title=tr("Nivel de cobertura (% del rinde esperado)"),
                                   yaxis_title="%")
                 st.plotly_chart(fig, use_container_width=True)
+
+        with st.expander("❓ " + tr("Preguntas metodológicas frecuentes")):
+            st.markdown(tr("**¿Cómo se simulan las colas? ¿Usan el coeficiente de variación?** No. Un CV resume toda la variabilidad en un número y presupone una forma (aprox. simétrica) — justo lo que falla en la cola. Acá la cola sale de tres piezas: (1) los años malos reales del departamento, normalizados a tecnología actual, que quedan como anclas; (2) la forma completa de la distribución ajustada a esos shocks (weibull, kernel, etc.), seleccionada por backtest con gates que rechazan a quien comprima la cola; (3) la masa en cero. El CV del departamento queda implícito en la distribución; nunca se usa el de la provincia."))
+            st.markdown(tr("**¿Los datos son del departamento o de la provincia?** La distribución se ajusta SIEMPRE a la serie del departamento seleccionado. La provincia no entra en la forma de la cola; solo aparece en dos lugares acotados: el prior de P(Y=0) por nivel de agregación, y (en Resultados) la metodología modal si activás el modo uniforme. Si simulás a nivel FIELD/FARM se aplican multiplicadores de volatilidad prior — un supuesto documentado en config, no una estimación."))
+            st.markdown(tr("**¿Cómo se generan los rindes cero?** Con un modelo hurdle en dos partes: P(Y=0) se estima clasificando los ceros históricos por superficie (sembrada sin cosechar ≠ error de encuesta) y aplicando shrinkage beta-binomial hacia un prior por nivel de agregación — por eso P(Y=0)>0 aunque el departamento nunca haya registrado un cero. En la simulación: si u<P(Y=0) el rinde es exactamente 0; si no, se muestrea de la distribución positiva. Una densidad continua pura no puede producir un cero verdadero; la mezcla sí."))
 
         # ---------- Kernel Risk Model (§31, §36-37): distribución vs motor ----------
         st.subheader("🧬 " + tr("Kernel Risk Model — misma distribución, tres motores numéricos"))
