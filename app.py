@@ -10,6 +10,7 @@ import streamlit as st
 
 from src.analytics import detrending, statistics as ystats
 from src.normalization import YieldNormalizationConfig, YieldNormalizationEngine
+from src.pricing import portfolio as pf
 from src.data import database
 from src.pricing import burning_cost as bc
 from src.pricing.yield_insurance import Coverage
@@ -32,7 +33,7 @@ st.sidebar.caption("Agricultural Risk & Insurance Analytics")
 
 page = st.sidebar.radio(
     "Módulo",
-    ["🏠 Dashboard", "🌱 Análisis de rindes", "📈 Detrending",
+    ["📊 Resultados", "🏠 Dashboard", "🌱 Análisis de rindes", "📈 Detrending",
      "🧠 Normalización", "💰 Pricing", "🎲 Monte Carlo", "📦 Datos"],
 )
 
@@ -121,7 +122,206 @@ if serie.empty:
     st.stop()
 
 # ---------------------------------------------------------------- pages
-if page == "🏠 Dashboard":
+
+@st.cache_resource(show_spinner=False)
+def compute_portfolio(cultivo: str, provincia: str, min_years: int,
+                      trigger_mode: str, trigger_value: float,
+                      sa_ha: float, deductions: float, margin: float,
+                      loss_cap, return_period: int, n_rows: int):
+    """Corre el motor (FAST) + tarificación por departamento y consolida."""
+    data = get_data()
+    dfc = data[(data["cultivo"] == cultivo) & (data["provincia"] == provincia)]
+    params = pf.PortfolioParams(
+        trigger_mode=trigger_mode, trigger_value=trigger_value,
+        sum_insured_ha=sa_ha, deductions=deductions, mr_margin=margin,
+        loss_cap=loss_cap, return_period=return_period)
+    counts = (dfc.dropna(subset=["rendimiento_kgxha"])
+              .groupby("departamento")["anio"].nunique())
+    deptos = sorted(counts[counts >= min_years].index)
+    results, skipped = [], []
+    prog = st.progress(0.0, text="Ejecutando motor por departamento...")
+    eng = YieldNormalizationEngine(YieldNormalizationConfig(execution_mode="FAST"))
+    for i, d in enumerate(deptos):
+        prog.progress((i + 1) / max(len(deptos), 1),
+                      text=f"Normalizando {d} ({i+1}/{len(deptos)})")
+        serie_d = (dfc[dfc["departamento"] == d]
+                   .dropna(subset=["rendimiento_kgxha"])
+                   .sort_values("anio").reset_index(drop=True))
+        try:
+            res = eng.run(serie_d, crop=cultivo, location=d,
+                          target_year=int(serie_d["anio"].max()) + 1)
+        except Exception as exc:
+            skipped.append((d, f"motor: {exc}")); continue
+        if res.status != "OK":
+            skipped.append((d, res.status)); continue
+        sup = pf.superficie_estimada(dfc, d)
+        if sup <= 0:
+            skipped.append((d, "sin superficie reciente")); continue
+        results.append(pf.department_result(
+            d, res.normalized_history, res.expected_yield, sup, params))
+    prog.empty()
+    cons = pf.consolidate(results, params) if results else None
+    return cons, skipped, params
+
+
+if page == "📊 Resultados":
+    st.title("Resultados — consolidado de cartera")
+    st.caption("Tarifación técnica propia (modelo area-yield sobre serie "
+               "normalizada) · escenario CAT · peor año histórico · loss cap")
+
+    data = get_data()
+    provincias = sorted(data.loc[data["cultivo"] == cultivo, "provincia"].unique())
+    _prov_default = data.loc[(data["cultivo"] == cultivo)
+                             & (data["departamento"] == depto), "provincia"]
+    _prov_idx = (provincias.index(_prov_default.iloc[0])
+                 if len(_prov_default) and _prov_default.iloc[0] in provincias else 0)
+
+    with st.form("portfolio_form"):
+        c1, c2, c3, c4 = st.columns(4)
+        provincia = c1.selectbox("Provincia", provincias, index=_prov_idx)
+        min_years = c2.number_input("Mín. campañas por depto", 10, 50, 25)
+        trigger_mode_lbl = c3.selectbox(
+            "Modo de garantía", ["% del rinde esperado", "rinde fijo (kg/ha)"])
+        trigger_value = c4.number_input(
+            "Valor de garantía", 10.0, 5000.0,
+            65.0 if trigger_mode_lbl.startswith("%") else 1000.0, step=5.0,
+            help="65 ⇒ trigger = 65% del E[rinde] del motor · o kg/ha fijos")
+        c1, c2, c3, c4 = st.columns(4)
+        sa_ha = c1.number_input("Suma asegurada (USD/ha)", 10.0, 5000.0, 200.0, step=10.0)
+        deductions = c2.number_input("Deductions", 0.0, 0.6, 0.25, step=0.01)
+        margin = c3.number_input("MR Margin", 0.0, 0.5, 0.10, step=0.01)
+        ret_period = c4.selectbox("Período de retorno CAT", [50, 100, 200, 250], index=1)
+        c1, c2 = st.columns([1, 3])
+        cap_on = c1.checkbox("Aplicar LOSS CAP")
+        cap_pct = c2.slider("Loss cap (% de la suma asegurada)", 10, 100, 50,
+                            disabled=not cap_on)
+        run = st.form_submit_button("Calcular consolidado", type="primary")
+
+    if not run and "pf_result" not in st.session_state:
+        st.info("Configurá los parámetros y presioná **Calcular consolidado**. "
+                "El motor de normalización corre por cada departamento "
+                "elegible (~2 s c/u la primera vez; después queda cacheado).")
+        st.stop()
+    if run:
+        loss_cap = cap_pct / 100.0 if cap_on else None
+        tm = "pct" if trigger_mode_lbl.startswith("%") else "fixed"
+        st.session_state["pf_result"] = compute_portfolio(
+            cultivo, provincia, int(min_years), tm, float(trigger_value),
+            float(sa_ha), float(deductions), float(margin), loss_cap,
+            int(ret_period), len(data))
+    cons, skipped, params = st.session_state["pf_result"]
+
+    if cons is None:
+        st.warning("Ningún departamento elegible con esos filtros.")
+        st.stop()
+
+    t = cons["table"]
+    cap_active = params.loss_cap is not None
+
+    st.subheader("Totales de cartera")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Prima técnica total", f"${cons['prima_tecnica']:,.0f}",
+              delta=(f"{cons['prima_tecnica']-cons['prima_tecnica_nocap']:+,.0f} vs sin cap"
+                     if cap_active else None), delta_color="inverse")
+    c2.metric("Suma asegurada total", f"${cons['sa_total']:,.0f}",
+              help=f"{cons['superficie']:,.0f} ha × {params.sum_insured_ha:,.0f} USD/ha")
+    c3.metric("Tasa técnica media", f"{cons['tasa_media']:.2%}")
+    c4.metric("Departamentos", f"{len(t)}",
+              help=f"excluidos: {len(skipped)}")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric(f"Pérdida CAT (RP {params.return_period} años)",
+              f"${cons['perdida_cat']:,.0f}",
+              delta=(f"{cons['perdida_cat']-cons['perdida_cat_nocap']:+,.0f} vs sin cap"
+                     if cap_active else None), delta_color="inverse")
+    c2.metric("PML (× prima técnica)", f"{cons['pml_x']:.1f}x",
+              delta=(f"{cons['pml_x']-cons['pml_x_nocap']:+.1f}x vs sin cap"
+                     if cap_active else None), delta_color="inverse")
+    if cons["worst_year"]:
+        c3.metric(f"Peor año histórico ({cons['worst_year']})",
+                  f"${cons['worst_loss']:,.0f}")
+        c4.metric(f"{cons['worst_year']} (× prima técnica)",
+                  f"{cons['worst_x']:.1f}x")
+
+    if cap_active:
+        st.success(
+            f"**Efecto del loss cap {params.loss_cap:.0%}:** "
+            f"prima técnica ${cons['prima_tecnica_nocap']:,.0f} → "
+            f"${cons['prima_tecnica']:,.0f} "
+            f"({cons['prima_tecnica']/max(cons['prima_tecnica_nocap'],1)-1:+.1%}) · "
+            f"pérdida CAT ${cons['perdida_cat_nocap']:,.0f} → "
+            f"${cons['perdida_cat']:,.0f} "
+            f"({cons['perdida_cat']/max(cons['perdida_cat_nocap'],1)-1:+.1%}) · "
+            f"PML {cons['pml_x_nocap']:.1f}x → {cons['pml_x']:.1f}x. "
+            "El cap recorta la cola (CAT/PML) mucho más que la prima: "
+            "es capacidad de reaseguro implícita.")
+
+    st.subheader("Detalle por departamento")
+    show = pd.DataFrame({
+        "Departamento": t["departamento"],
+        "E[rinde] kg/ha": t["expected_yield"].round(0),
+        "Trigger %": (t["trigger_pct"] * 100).round(1),
+        "Rinde gatillo": t["trigger_yield"].round(0),
+        "Superficie ha": t["superficie_ha"].round(1),
+        "SA total USD": t["sa_total"].round(0),
+        "Tasa pura": (t["pure_rate"] * 100).round(2),
+        "Tasa técnica": (t["tech_rate"] * 100).round(2),
+        "Prima técnica USD": t["prima_tecnica"].round(0),
+        f"LC CAT {params.return_period}a %": (t["lc_cat"] * 100).round(1),
+        "Pérdida CAT USD": t["perdida_cat"].round(0),
+        "PML x prima": (t["perdida_cat"] / t["prima_tecnica"].clip(lower=1)).round(1),
+        "Campañas": t["n_years"],
+    })
+    if cap_active:
+        show["Tasa técnica s/cap"] = (t["tech_rate_nocap"] * 100).round(2)
+    tot = {"Departamento": "TOTAL", "Superficie ha": show["Superficie ha"].sum(),
+           "SA total USD": show["SA total USD"].sum(),
+           "Tasa técnica": round(cons["tasa_media"] * 100, 2),
+           "Prima técnica USD": show["Prima técnica USD"].sum(),
+           "Pérdida CAT USD": show["Pérdida CAT USD"].sum(),
+           "PML x prima": round(cons["pml_x"], 1)}
+    show = pd.concat([show, pd.DataFrame([tot])], ignore_index=True)
+    st.dataframe(show, use_container_width=True, height=560)
+    st.download_button("⬇ Descargar CSV", show.to_csv(index=False).encode(),
+                       file_name=f"resultados_{cultivo}_{provincia}.csv")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        fig = px.bar(t.sort_values("prima_tecnica"), x="prima_tecnica",
+                     y="departamento", orientation="h",
+                     title="Prima técnica por departamento (USD)",
+                     labels={"prima_tecnica": "USD", "departamento": ""})
+        fig.update_layout(height=480)
+        st.plotly_chart(fig, use_container_width=True)
+    with c2:
+        py = cons["per_year"]
+        fig = px.bar(py, x="year", y="loss",
+                     title="Pérdida histórica agregada por campaña (USD, a valores actuales)",
+                     labels={"year": "Campaña", "loss": "USD"})
+        if cons["worst_year"]:
+            fig.add_annotation(x=cons["worst_year"], y=cons["worst_loss"],
+                               text=f"peor año: {cons['worst_year']}",
+                               showarrow=True, arrowhead=2)
+        fig.update_layout(height=480)
+        st.plotly_chart(fig, use_container_width=True)
+
+    if cons["worst_detail"] is not None:
+        with st.expander(f"Detalle del peor año ({cons['worst_year']})"):
+            wd = cons["worst_detail"].copy()
+            wd["lc"] = (wd["lc"] * 100).round(1)
+            wd["loss"] = wd["loss"].round(0)
+            wd.columns = ["Departamento", "LC %", "Pérdida USD"]
+            st.dataframe(wd, use_container_width=True)
+    if skipped:
+        with st.expander(f"Departamentos excluidos ({len(skipped)})"):
+            st.dataframe(pd.DataFrame(skipped, columns=["Departamento", "Motivo"]))
+    st.caption("Metodología: trigger sobre E[rinde] del motor de normalización "
+               "(FAST) · LC area-yield = max(0, T−y)/T sobre la serie "
+               "normalizada · recargo = pura / (1 − deductions − margin) · "
+               "CAT por Monte Carlo (20.000 sims) sobre la distribución "
+               "seleccionada por AIC · agregación comonótona (sin "
+               "diversificación espacial, criterio conservador).")
+
+elif page == "🏠 Dashboard":
     st.title("AGRO RATE")
     st.caption(f"{cultivo.title()} · {depto} · Chaco · {desde}–{hasta}")
 

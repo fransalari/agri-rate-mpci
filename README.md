@@ -25,6 +25,7 @@ departamentos, fuente MAGyP).
 |---|---|
 | 🏠 Dashboard | KPIs de la serie: rinde promedio, tendencia, CV, peor campaña |
 | 🌱 Análisis de rindes | Serie histórica, estadística descriptiva, percentiles, histograma |
+| 📊 Resultados | Consolidado de cartera multi-departamento: tarifa técnica area-yield sobre serie normalizada, recargos (deductions + MR margin), escenario CAT (RP configurable) con PML, peor año histórico y **loss cap** con comparación sin/con tope |
 | 📈 Detrending | Linear / quadratic / LOESS / moving average — serie en "tecnología actual" |
 | 🧠 Normalización | **Yield Risk Normalization Engine**: selección automática de modelo, modo (mult/add), start year y half-life con validación rolling-origin OOS, regla one-SE, structural breaks, bootstrap y explicación auditable (`REPORT_NORMALIZATION.md`) |
 | 💰 Pricing | Burning cost, frecuencia, severidad, curva de garantías 50–90%, loss cost anual |
