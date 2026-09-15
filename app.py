@@ -1028,12 +1028,54 @@ elif page == "5️⃣ Pricing":
     tasa_obs = float(lc_hist.mean())
     freq_obs = float((lc_hist > 0).mean())
 
-    # --- 2) tasa pura simulada (motor: distribución + ceros + cola) ---
+    # --- 2) tasa pura simulada: distribución seleccionada × motor numérico ---
     sims = rk.simulated_yields * (expected / mu)
     lc_sim = np.maximum(g_kg - sims, 0.0) / g_kg
-    tasa_sim = float(lc_sim.mean())
-    freq_sim = float((lc_sim > 0).mean())
-    sev_sim = float(lc_sim[lc_sim > 0].mean()) if (lc_sim > 0).any() else 0.0
+    _tasa_mc = float(lc_sim.mean())
+    _freq_mc = float((lc_sim > 0).mean())
+    _sev_mc = float(lc_sim[lc_sim > 0].mean()) if (lc_sim > 0).any() else 0.0
+
+    from src.distribution.kernel_engine import KernelRiskModel
+    _nhp = rk.normalized_history
+    _posp = _nhp[~_nhp["zero_event"]]
+    _kmp = KernelRiskModel.fit(
+        _posp["standardized_shock"].to_numpy(float),
+        years=_posp["year"].to_numpy(),
+        weights=_posp["historical_weight"].to_numpy(float),
+        weighted=True, p_zero=rk.zero_mass["p_zero"])
+    _det = _kmp.expected_loss_deterministic(guarantee, 20)
+    _ana = _kmp.expected_loss_integration(guarantee)
+
+    _eng = st.radio(
+        tr("Motor numérico de la tasa simulada"),
+        ["MC_SELECCIONADA", "KERNEL_DETERMINISTICO", "KERNEL_INTEGRACION"],
+        format_func=lambda k: {
+            "MC_SELECCIONADA": tr("Monte Carlo · distribución seleccionada ({d})",
+                                  d=rk.distribution["label"]),
+            "KERNEL_DETERMINISTICO": tr("Kernel determinístico · anclas × nodos (log-kernel ponderado)"),
+            "KERNEL_INTEGRACION": tr("Kernel integración analítica (exacta)"),
+        }[k], horizontal=True, key="pr_engine")
+    st.caption(tr("Los tres a esta garantía: MC {a:.2%} · kernel determinístico {b:.2%} · integración {c:.2%}. El kernel NO es una alternativa a Monte Carlo: es una distribución; MC/determinístico/integración son motores. Regla práctica: riesgo individual → determinístico (sin ruido, trazable); cartera/reaseguro → Monte Carlo; integración → benchmark exacto.",
+                  a=_tasa_mc, b=_det["expected_loss"], c=_ana["expected_loss"]))
+    if _eng == "KERNEL_DETERMINISTICO":
+        tasa_sim, freq_sim, sev_sim = (_det["expected_loss"],
+                                       _det["claim_probability"],
+                                       _det["severity"])
+        _eng_label = "weighted log-kernel · KERNEL_DETERMINISTIC"
+    elif _eng == "KERNEL_INTEGRACION":
+        tasa_sim, freq_sim, sev_sim = (_ana["expected_loss"],
+                                       _ana["claim_probability"],
+                                       _ana["severity"])
+        _eng_label = "weighted log-kernel · KERNEL_INTEGRATION"
+    else:
+        tasa_sim, freq_sim, sev_sim = _tasa_mc, _freq_mc, _sev_mc
+        _eng_label = f"{rk.distribution['label']} · MONTE_CARLO"
+    edu.edu("¿Monte Carlo o kernel determinístico? La regla del comité técnico",
+        "El kernel es una distribución; Monte Carlo es un motor numérico. No compiten en el mismo eje.",
+        None,
+        "Para UN riesgo, el determinístico da el mismo número siempre (sin semillas), y cada escenario se explica con una campaña real — defendible ante auditoría y reaseguro. Para CARTERA, MC es necesario: correlación entre departamentos, estructuras de reaseguro y curvas EP no se enumeran.",
+        "Si la distribución seleccionada por el motor (p.ej. weibull) y el kernel difieren materialmente en tasa, eso es MODEL RISK y está cuantificado abajo — no lo resuelve elegir motor.",
+        "No uses el determinístico para agregar cartera asumiendo independencia: subestima el CAT. Y no re-calibres el kernel por motor: es UNA calibración.")
 
     # --- guardrail de experiencia (§24): opcional, default filosofía actual ---
     _gmode = st.selectbox(
@@ -1086,8 +1128,8 @@ elif page == "5️⃣ Pricing":
                       d=rk.distribution["label"], p=rk.zero_mass["p_zero"])},
         {"Concepto": tr("3 · Tasa pura simulada"),
          "Valor": f"{tasa_sim:.2%}",
-         "Fuente": tr("MC {n} sims · frecuencia {f:.1%} · severidad {s:.1%}",
-                      n=len(sims), f=freq_sim, s=sev_sim)},
+         "Fuente": f"{_eng_label} · " + tr("frecuencia {f:.1%} · severidad {s:.1%}",
+                      f=freq_sim, s=sev_sim)},
         {"Concepto": tr("4 · Recargo estructura"),
          "Valor": f"÷ {loading:.2f}",
          "Fuente": tr("1 − deductions ({d:.0%}) − margen de riesgo ({m:.0%})",

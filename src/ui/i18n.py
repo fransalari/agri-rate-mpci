@@ -306,6 +306,17 @@ EN = {
     "Guardrail activo: tasa pura = {m} → {t:.2%} (modelo {a:.2%} · observado {b:.2%})":
         "Guardrail active: pure rate = {m} → {t:.2%} (model {a:.2%} · observed {b:.2%})",
 
+
+    # --- motor numérico en pricing ---
+    "Motor numérico de la tasa simulada": "Numerical engine for the simulated rate",
+    "Monte Carlo · distribución seleccionada ({d})": "Monte Carlo · selected distribution ({d})",
+    "Kernel determinístico · anclas × nodos (log-kernel ponderado)":
+        "Deterministic kernel · anchors × nodes (weighted log-kernel)",
+    "Kernel integración analítica (exacta)": "Kernel analytic integration (exact)",
+    "Los tres a esta garantía: MC {a:.2%} · kernel determinístico {b:.2%} · integración {c:.2%}. El kernel NO es una alternativa a Monte Carlo: es una distribución; MC/determinístico/integración son motores. Regla práctica: riesgo individual → determinístico (sin ruido, trazable); cartera/reaseguro → Monte Carlo; integración → benchmark exacto.":
+        "All three at this guarantee: MC {a:.2%} · deterministic kernel {b:.2%} · integration {c:.2%}. The kernel is NOT an alternative to Monte Carlo: it is a distribution; MC/deterministic/integration are engines. Rule of thumb: individual risk → deterministic (noise-free, traceable); portfolio/reinsurance → Monte Carlo; integration → exact benchmark.",
+    "frecuencia {f:.1%} · severidad {s:.1%}": "frequency {f:.1%} · severity {s:.1%}",
+
     # --- otras páginas ---
     "Análisis de rindes": "Yield analysis",
     "Estadística descriptiva": "Descriptive statistics",
