@@ -1195,22 +1195,6 @@ elif page == "5️⃣ Pricing":
         "Subir la cobertura sube sobre todo la frecuencia; el riesgo CAT vive en la severidad.",
         "Un modelo puede clavar la frecuencia y subestimar la severidad — el backtest del motor valida ambas.")
 
-    # ---------- prediction checkpoint (§12, solo Guiado) ----------
-    if edu.guided() and not st.session_state.get("cp_cov_done"):
-        with st.container(border=True):
-            st.markdown("🧠 **" + tr("Experimento mental: si la cobertura sube de 70% a 80%, ¿qué esperás de la tasa pura?") + "**")
-            _ans = st.radio("", [tr("Baja"), tr("Queda parecida"),
-                                 tr("Sube más que proporcionalmente")],
-                            index=None, key="cp_cov", horizontal=True,
-                            label_visibility="collapsed")
-            if _ans:
-                _cc = rk.claim_curve.set_index("coverage")
-                _r70 = float(_cc.loc[0.70, "expected_indemnity"])
-                _r80 = float(_cc.loc[0.80, "expected_indemnity"])
-                st.info(tr("Con esta serie: 70% → {a:.2%} · 80% → {b:.2%} ({x:.1f}×). Sube MÁS que proporcionalmente: al subir la garantía entran a la región asegurada los años moderadamente malos, que son muchos más que los extremos.",
-                           a=_r70, b=_r80, x=_r80/max(_r70,1e-9)))
-                st.session_state["cp_cov_done"] = True
-
     # ---------- incertidumbre de la tasa (§18) ----------
     st.subheader(tr("Incertidumbre de la tasa"))
     _ck = f"{cultivo}|{depto}|{desde}|{hasta}|{guarantee:.2f}"
